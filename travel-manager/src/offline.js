@@ -237,9 +237,16 @@ export async function syncNow(apiFetch) {
     }
     // 2) pull de mudanças do servidor desde o último cursor
     let cursor = (await getMeta('cursor')) ?? 0
+    // primeira vez neste dispositivo? pede snapshot completo (inclui linhas criadas antes de eu existir)
+    if (!(await getMeta('bootstrapped'))) {
+      cursor = 0
+      var bootstrap = true
+    }
     let more = true
     while (more) {
-      const data = await apiFetch(`/sync/changes?since=${cursor}`)
+      const data = await apiFetch(`/sync/changes?since=${cursor}${bootstrap ? '&full=1' : ''}`)
+      bootstrap = false
+      await setMeta('bootstrapped', 1)
       for (const ch of data.changes || []) {
         if (ch.action === 'upsert' && ch.payload && ch.payload.id != null) {
           await applyServerRow(ch.table, ch.payload)
