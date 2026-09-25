@@ -163,7 +163,7 @@ function purchase(q: QuoteRow) {
     amount: q.price,
     date: q.date || new Date().toISOString().slice(0, 10)
   })
-  db.prepare('UPDATE transport_quotes SET purchased = 1, expense_id = ?, updated_at = unixepoch() WHERE id = ?')
+  db.prepare(`UPDATE transport_quotes SET purchased = 1, expense_id = ?, updated_at = strftime(\'%s\',\'now\') WHERE id = ?`)
     .run(exp.id, q.id)
   logChange('transport_quotes', q.id, 'upsert')
 }
@@ -174,7 +174,7 @@ export function update(id: number, data: QuoteInput) {
   const s = sanitize(data)
   const cols = Object.keys(s)
   if (cols.length) {
-    db.prepare(`UPDATE transport_quotes SET ${cols.map((c) => `${c} = @${c}`).join(', ')}, updated_at = unixepoch() WHERE id = @__id`)
+    db.prepare(`UPDATE transport_quotes SET ${cols.map((c) => `${c} = @${c}`).join(', ')}, updated_at = strftime(\'%s\',\'now\') WHERE id = @__id`)
       .run({ ...s, __id: id })
     logChange('transport_quotes', id, 'upsert')
   }

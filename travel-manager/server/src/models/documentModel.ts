@@ -108,7 +108,7 @@ function linkExpense(expenseId: number, docId: number, tripId?: number) {
   if (tripId && exp.trip_id !== tripId) return
   const ids = JSON.parse(String(exp.document_ids || '[]')) as number[]
   if (!ids.includes(docId)) {
-    db.prepare('UPDATE expenses SET document_ids = ?, updated_at = unixepoch() WHERE id = ?')
+    db.prepare(`UPDATE expenses SET document_ids = ?, updated_at = strftime(\'%s\',\'now\') WHERE id = ?`)
       .run(JSON.stringify([...new Set([...ids, docId])]), expenseId)
     logChange('expenses', expenseId, 'upsert')
   }
@@ -120,7 +120,7 @@ export function update(id: number, data: DocInput) {
   const meta = sanitizeMeta({ ...data, data: undefined })
   const cols = Object.keys(meta)
   if (cols.length) {
-    db.prepare(`UPDATE documents SET ${cols.map((c) => `${c} = @${c}`).join(', ')}, updated_at = unixepoch() WHERE id = @__id`)
+    db.prepare(`UPDATE documents SET ${cols.map((c) => `${c} = @${c}`).join(', ')}, updated_at = strftime(\'%s\',\'now\') WHERE id = @__id`)
       .run({ ...meta, __id: id })
     logChange('documents', id, 'upsert')
   }
@@ -137,7 +137,7 @@ export function remove(id: number): boolean {
   const rows = db.prepare("SELECT id, document_ids FROM expenses WHERE document_ids LIKE ?").all(String(id)) as Array<{ id: number; document_ids: string }>
   for (const e of rows) {
     const ids = (JSON.parse(e.document_ids) as number[]).filter((x) => x !== id)
-    db.prepare('UPDATE expenses SET document_ids = ?, updated_at = unixepoch() WHERE id = ?').run(JSON.stringify(ids), e.id)
+    db.prepare(`UPDATE expenses SET document_ids = ?, updated_at = strftime(\'%s\',\'now\') WHERE id = ?`).run(JSON.stringify(ids), e.id)
     logChange('expenses', e.id, 'upsert')
   }
   logChange('documents', id, 'delete')

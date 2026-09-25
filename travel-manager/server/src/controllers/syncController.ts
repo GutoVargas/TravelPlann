@@ -32,8 +32,8 @@ export function pullChanges(req: Request, res: Response) {
   } else {
     changes = db
       .prepare(
-        `SELECT table_name AS table, row_id AS rowId, action, payload, at
-         FROM audit_log WHERE at > ? ORDER BY at LIMIT 5000`
+        `SELECT table_name AS "table", row_id AS rowId, action, payload, at
+         FROM audit_log WHERE CAST(at AS REAL) > ? ORDER BY CAST(at AS REAL) LIMIT 5000`
       )
       .all(since) as typeof changes
     changes = changes.map((c) => ({
@@ -69,16 +69,16 @@ export function pushChanges(req: Request, res: Response) {
             if (expense_id !== undefined) { sets.push('expense_id = @expense_id'); params.expense_id = Number(expense_id) }
             if (mime_type !== undefined) { sets.push('mime_type = @mime_type'); params.mime_type = String(mime_type) }
             if (sets.length) {
-              db.prepare(`UPDATE documents SET ${sets.join(', ')}, updated_at = unixepoch() WHERE id = @id`).run(params)
+              db.prepare(`UPDATE documents SET ${sets.join(', ')}, updated_at = strftime(\'%s\',\'now\') WHERE id = @id`).run(params)
             }
           } else {
             upsertFromSync(table, ch.row)
           }
-          db.prepare(`INSERT INTO audit_log (table_name, row_id, action, payload, at) VALUES (?, ?, 'upsert', ?, unixepoch())`)
+          db.prepare(`INSERT INTO audit_log (table_name, row_id, action, payload, at) VALUES (?, ?, 'upsert', ?, strftime(\'%s\',\'now\'))`)
             .run(ch.table, Number((ch.row as Record<string, unknown>).id), JSON.stringify({ by: clientId }))
         } else if (ch.action === 'delete' && Number.isFinite(Number(ch.id))) {
           db.prepare(`DELETE FROM ${ch.table} WHERE id = ?`).run(Number(ch.id))
-          db.prepare(`INSERT INTO audit_log (table_name, row_id, action, payload, at) VALUES (?, ?, 'delete', ?, unixepoch())`)
+          db.prepare(`INSERT INTO audit_log (table_name, row_id, action, payload, at) VALUES (?, ?, 'delete', ?, strftime(\'%s\',\'now\'))`)
             .run(ch.table, Number(ch.id), JSON.stringify({ by: clientId }))
         } else {
           throw new Error('mudança inválida')
