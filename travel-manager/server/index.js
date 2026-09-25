@@ -12,6 +12,7 @@ import {
   listDocs, getDoc, addDoc, updateDoc, deleteDoc
 } from './db.js'
 import { searchTransport } from './searchTransport.js'
+import { searchTrains } from './searchTrains.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(__dirname, '..', 'dist')
@@ -62,6 +63,16 @@ async function handleApi(req, res, url) {
       const destination = url.searchParams.get('destination') || ''
       const date = url.searchParams.get('date') || ''
       const data = await searchTransport({ origin, destination, date })
+      return sendJson(res, 200, data)
+    }
+
+    // GET /api/search-trains?origin=München Hbf&destination=Berlin Hbf&date=2026-10-05
+    // Busca horários/preços reais de TRENS na EUROPA via HAFAS (bahn.de/DB)
+    if (parts[1] === 'search-trains' && req.method === 'GET') {
+      const origin = url.searchParams.get('origin') || ''
+      const destination = url.searchParams.get('destination') || ''
+      const date = url.searchParams.get('date') || ''
+      const data = await searchTrains({ origin, destination, date })
       return sendJson(res, 200, data)
     }
 

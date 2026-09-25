@@ -26,6 +26,10 @@ export const api = {
     const q = new URLSearchParams(params).toString()
     return request(`/search-transport?${q}`)
   },
+  searchTrains: (params) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/search-trains?${q}`)
+  },
   listTrips: () => request('/trips'),
   getTrip: (id) => request(`/trips/${id}`),
   createTrip: (trip) => request('/trips', { method: 'POST', body: JSON.stringify(trip) }),
@@ -54,6 +58,10 @@ export const TRANSPORT_MODES = {
   trem: { label: '🚆 Trem / metrô' },
   barco: { label: '⛴️ Barco / balsa' },
   voo_interno: { label: '🛩️ Voo interno' },
+  metro: { label: '🚇 Metrô' },
+  bus_uefa: { label: '🚍 Ônibus urbano (Europa)' },
+  transfer: { label: '🚐 Transfer / táxi' },
+  travessia: { label: '⛴️ Travessia de balsa' },
   outro: { label: '🧭 Outro' }
 }
 

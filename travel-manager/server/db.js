@@ -32,7 +32,7 @@ function save() {
 const FIELDS_TRIP = ['title', 'destination', 'startDate', 'endDate', 'budget', 'status', 'notes']
 const FIELDS_EXPENSE = ['description', 'category', 'amount', 'date', 'documentIds']
 
-export const TRANSPORT_MODES = ['aviao', 'onibus', 'carro', 'trem', 'barco', 'voo_interno', 'outro']
+export const TRANSPORT_MODES = ['aviao', 'onibus', 'carro', 'trem', 'barco', 'voo_interno', 'metro', 'bus_uefa', 'transfer', 'travessia', 'outro']
 export const DOC_TYPES = ['passagem', 'ingresso', 'comprovante', 'reserva', 'outro']
 
 function sanitizeQuote(data) {
@@ -169,7 +169,7 @@ export function updateQuote(id, data) {
   // "Comprei!" → lança o valor como gasto na categoria transporte (uma única vez)
   if (data.purchased && !q.expenseId) {
     if (!q.price || q.price <= 0) throw new Error('defina um preço antes de marcar como comprada')
-    const MODE_LABEL = { aviao: 'Voo', onibus: 'Ônibus', carro: 'Carro', trem: 'Trem', barco: 'Barco', voo_interno: 'Voo interno', outro: 'Transporte' }
+    const MODE_LABEL = { aviao: 'Voo', onibus: 'Ônibus', carro: 'Carro', trem: 'Trem', barco: 'Barco', voo_interno: 'Voo interno', metro: 'Metrô', bus_uefa: 'Ônibus urbano', transfer: 'Transfer', travessia: 'Travessia', outro: 'Transporte' }
     const desc = [
       `${MODE_LABEL[q.mode] || 'Transporte'}${q.from || q.to ? ` ${q.from}→${q.to}` : ''}`,
       q.company
@@ -201,7 +201,7 @@ export function convertQuoteToExpense(quoteId) {
   if (!q.price || q.price <= 0) throw new Error('defina um preço na cotação antes de converter em gasto')
   const trip = db.trips.find((t) => t.id === q.tripId)
   if (!trip) throw new Error('viagem não encontrada')
-  const MODE_LABEL = { aviao: 'Voo', onibus: 'Ônibus', carro: 'Carro', trem: 'Trem', barco: 'Barco', voo_interno: 'Voo interno', outro: 'Transporte' }
+  const MODE_LABEL = { aviao: 'Voo', onibus: 'Ônibus', carro: 'Carro', trem: 'Trem', barco: 'Barco', voo_interno: 'Voo interno', metro: 'Metrô', bus_uefa: 'Ônibus urbano', transfer: 'Transfer', travessia: 'Travessia', outro: 'Transporte' }
   const desc = [
     `${MODE_LABEL[q.mode] || 'Transporte'}${q.from || q.to ? ` ${q.from}→${q.to}` : ''}`,
     q.company

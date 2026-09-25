@@ -4,11 +4,12 @@ import Dashboard from './components/Dashboard.jsx'
 import TripList from './components/TripList.jsx'
 import TripForm from './components/TripForm.jsx'
 import TripDetail from './components/TripDetail.jsx'
+import GlobalSearch from './components/GlobalSearch.jsx'
 
 export default function App() {
   const [trips, setTrips] = useState([])
   const [stats, setStats] = useState(null)
-  const [view, setView] = useState('dashboard') // dashboard | trips | form | detail
+  const [view, setView] = useState('dashboard') // dashboard | trips | form | detail | search
   const [editing, setEditing] = useState(null) // trip em edição
   const [selectedId, setSelectedId] = useState(null)
   const [error, setError] = useState('')
@@ -51,6 +52,7 @@ export default function App() {
         <nav>
           <button className={view === 'dashboard' ? 'active' : ''} onClick={() => setView('dashboard')}>Visão Geral</button>
           <button className={view === 'trips' || view === 'detail' ? 'active' : ''} onClick={() => setView('trips')}>Viagens</button>
+          <button className={view === 'search' ? 'active' : ''} onClick={() => setView('search')}>🔎 Buscar transporte</button>
           <button className="btn-primary" onClick={openNew}>+ Nova Viagem</button>
         </nav>
       </header>
@@ -66,6 +68,10 @@ export default function App() {
 
         {!loading && view === 'trips' && (
           <TripList trips={trips} onOpen={openDetail} onEdit={openEdit} onDelete={handleDelete} onNew={openNew} />
+        )}
+
+        {!loading && view === 'search' && (
+          <GlobalSearch trips={trips} onError={setError} onSaved={refresh} />
         )}
 
         {view === 'form' && (

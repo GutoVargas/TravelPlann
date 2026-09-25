@@ -212,3 +212,30 @@ ul.docs li strong { overflow: hidden; text-overflow: ellipsis; white-space: nowr
 .modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .doc-img { max-width: 80vw; max-height: 75vh; object-fit: contain; border-radius: 8px; }
 .pdf-viewer { width: 78vw; height: 75vh; border: none; border-radius: 8px; background: #fff; }
+
+/* ── Tela de busca global de transporte ─────────────────────────── */
+.provider-tabs { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.provider-tab {
+  padding: 9px 16px; border-radius: 999px; cursor: pointer; font-size: .92rem;
+  background: rgba(255,255,255,.06); color: #cbd5e1; border: 1px solid rgba(255,255,255,.12);
+  transition: all .15s ease;
+}
+.provider-tab:hover { background: rgba(255,255,255,.12); }
+.provider-tab.active {
+  background: linear-gradient(135deg,#3b82f6,#8b5cf6); color: #fff;
+  border-color: transparent; font-weight: 600;
+}
+.save-into { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; flex-wrap: wrap; }
+.save-into select { flex: 1; min-width: 220px; }
+.search-results li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 12px; }
+.search-results .exp-desc { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 2px; }
+.link { text-decoration: none; display: inline-flex; align-items: center; }
+
+/* Busca global: inverter rota + recentes */
+.swap { align-self: stretch; border-radius: 8px; padding: 0 10px; font-size: 1rem; }
+.recent-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 6px 0 2px; }
+.chip {
+  background: rgba(139,92,246,.12); border: 1px solid rgba(139,92,246,.35); color: #c4b5fd;
+  border-radius: 999px; padding: 4px 12px; font-size: .8rem; cursor: pointer;
+}
+.chip:hover { background: rgba(139,92,246,.25); }
