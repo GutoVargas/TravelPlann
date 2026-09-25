@@ -54,22 +54,39 @@ export function logChange(table: EntityTable, rowId: number, action: 'upsert' | 
   ).run(table, rowId, action, payload)
 }
 
-/** Carrega a linha atual para o payload do audit_log (sem dados binários pesados). */
+/** Carrega a linha atual para o payload do audit_log.
+ *  Para documents incluímos `data` (base64) para que clientes offline recebam
+ *  os ingressos sem precisar de um segundo request por arquivo. */
 export function snapshot(table: EntityTable, rowId: number): unknown {
   const t = SYNC_TABLES[table]
   const row = db.prepare(`SELECT * FROM ${t} WHERE id = ?`).get(rowId)
   if (!row) return null
-  const r = row as Record<string, unknown>
-  delete r.data // não duplica o base64 do documento no log de auditoria
-  return r
+  return row
+}
+
+/** Próximo id inteiro da tabela (usado em inserts offline sincronizados via /api/sync/push). */
+export function nextId(table: EntityTable): number {
+  const t = SYNC_TABLES[table]
+  const r = db.prepare(`SELECT COALESCE(MAX(id), 0) + 1 AS n FROM ${t}`).get() as { n: number }
+  return Number(r.n)
+}
+
+/** Colunas conhecidas de cada tabela (exceto id/updated_at) — protege contra SQL injection
+ *  vindo de payloads de sync e descarta campos desconhecidos enviados pelo cliente. */
+const TABLE_COLS: Record<EntityTable, string[]> = {
+  trips: ['title', 'destination', 'start_date', 'end_date', 'budget', 'status', 'notes', 'currency', 'created_at'],
+  expenses: ['trip_id', 'description', 'category', 'amount', 'date', 'quote_id', 'document_ids'],
+  transport_quotes: ['trip_id', 'mode', 'origin', 'destination', 'company', 'price', 'date', 'notes', 'purchased', 'expense_id', 'bus_type', 'departure_time', 'arrival_time', 'duration_min', 'source', 'url'],
+  documents: ['trip_id', 'name', 'type', 'mime_type', 'data', 'expense_id', 'created_at']
 }
 
 /** Cria/atualiza uma linha preservando o id (folha de sync vinda do cliente). */
 export function upsertFromSync(table: EntityTable, row: Record<string, unknown>): void {
   const t = SYNC_TABLES[table]
-  const data: Record<string, unknown> = { ...row }
-  const id = Number(data.id)
-  delete data.id
+  const allowed = new Set(TABLE_COLS[table])
+  const data: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(row || {})) if (allowed.has(k)) data[k] = v
+  const id = Number(row?.id)
   delete data.updated_at
   const cols = Object.keys(data)
   const existing = db.prepare(`SELECT id FROM ${t} WHERE id = ?`).get(id)
