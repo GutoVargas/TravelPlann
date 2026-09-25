@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS trips (
   notes TEXT NOT NULL DEFAULT '',
   currency TEXT NOT NULL DEFAULT 'BRL',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at INTEGER NOT NULL DEFAULT unixepoch()
+  updated_at TEXT NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
 CREATE TABLE IF NOT EXISTS expenses (
@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   date TEXT NOT NULL DEFAULT '',
   quote_id INTEGER,
   document_ids TEXT NOT NULL DEFAULT '[]',
-  updated_at INTEGER NOT NULL DEFAULT unixepoch()
+  updated_at TEXT NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_expenses_trip ON expenses(trip_id);
 
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS transport_quotes (
   duration_min INTEGER,
   source TEXT,
   url TEXT,
-  updated_at INTEGER NOT NULL DEFAULT unixepoch()
+  updated_at TEXT NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_quotes_trip ON transport_quotes(trip_id);
 
@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS documents (
   data TEXT NOT NULL DEFAULT '',
   expense_id INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at INTEGER NOT NULL DEFAULT unixepoch()
+  updated_at TEXT NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_docs_trip ON documents(trip_id);
 
@@ -68,6 +68,6 @@ CREATE TABLE IF NOT EXISTS audit_log (
   row_id INTEGER NOT NULL,
   action TEXT NOT NULL CHECK (action IN ('upsert', 'delete')),
   payload TEXT,
-  at INTEGER NOT NULL DEFAULT unixepoch()
+  at TEXT NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);

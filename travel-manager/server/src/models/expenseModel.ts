@@ -102,7 +102,7 @@ export function update(id: number, data: ExpenseInput) {
     params.document_ids = mapDocIds(data.documentIds)
   }
   if (sets.length) {
-    db.prepare(`UPDATE expenses SET ${sets.join(', ')}, updated_at = unixepoch() WHERE id = @id`).run(params)
+    db.prepare(`UPDATE expenses SET ${sets.join(', ')}, updated_at = strftime(\'%s\',\'now\') WHERE id = @id`).run(params)
     logChange('expenses', id, 'upsert')
   }
   return get(id)

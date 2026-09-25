@@ -12,7 +12,7 @@ db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')
 
 // ---------- migrações ----------
-const MIGRATIONS_DIR = path.join(__dirname, '..', 'migrations')
+const MIGRATIONS_DIR = path.join(__dirname, 'migrations')
 
 function runMigrations(): void {
   db.exec(`CREATE TABLE IF NOT EXISTS _migrations (
@@ -48,9 +48,10 @@ const SYNC_TABLES: Record<EntityTable, string> = {
 
 /** Registra a alteração no audit_log (usado pelo /api/sync para propagar mudanças). */
 export function logChange(table: EntityTable, rowId: number, action: 'upsert' | 'delete'): void {
+  const payload = action === 'upsert' ? JSON.stringify(snapshot(table, rowId)) : null
   db.prepare(
-    `INSERT INTO audit_log (table_name, row_id, action, at) VALUES (?, ?, ?, unixepoch())`
-  ).run(table, rowId, action)
+    `INSERT INTO audit_log (table_name, row_id, action, payload, at) VALUES (?, ?, ?, ?, strftime('%s','now'))`
+  ).run(table, rowId, action, payload)
 }
 
 /** Carrega a linha atual para o payload do audit_log (sem dados binários pesados). */
@@ -73,9 +74,9 @@ export function upsertFromSync(table: EntityTable, row: Record<string, unknown>)
   const cols = Object.keys(data)
   const existing = db.prepare(`SELECT id FROM ${t} WHERE id = ?`).get(id)
   if (existing) {
-    db.prepare(`UPDATE ${t} SET ${cols.map((c) => `${c} = @${c}`).join(', ')}, updated_at = unixepoch() WHERE id = @id`, ).run({ ...data, id })
+    db.prepare(`UPDATE ${t} SET ${cols.map((c) => `${c} = @${c}`).join(', ')}, updated_at = strftime(\'%s\',\'now\') WHERE id = @id`, ).run({ ...data, id })
   } else {
-    db.prepare(`INSERT INTO ${t} (id, ${cols.join(', ')}, updated_at) VALUES (@id, ${cols.map((c) => `@${c}`).join(', ')}, unixepoch())`).run({ ...data, id })
+    db.prepare(`INSERT INTO ${t} (id, ${cols.join(', ')}, updated_at) VALUES (@id, ${cols.map((c) => `@${c}`).join(', ')}, strftime(\'%s\',\'now\'))`).run({ ...data, id })
   }
 }
 

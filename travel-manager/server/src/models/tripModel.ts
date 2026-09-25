@@ -139,7 +139,7 @@ export function update(id: number, data: TripInput): TripDTO | null {
   const s = sanitize(data)
   const cols = Object.keys(s)
   if (cols.length) {
-    db.prepare(`UPDATE trips SET ${cols.map((c) => `${c} = @${c}`).join(', ')}, updated_at = unixepoch() WHERE id = @__id`)
+    db.prepare(`UPDATE trips SET ${cols.map((c) => `${c} = @${c}`).join(', ')}, updated_at = strftime(\'%s\',\'now\') WHERE id = @__id`)
       .run({ ...s, __id: id })
     logChange('trips', id, 'upsert')
   }
