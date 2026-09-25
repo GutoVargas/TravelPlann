@@ -13,12 +13,12 @@
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
-export function withTimeout(promiseFactory, ms = 15000) {
+export function withTimeout<T>(promiseFactory: (signal: AbortSignal) => Promise<T>, ms = 15000): Promise<T> {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), ms)
   const p = promiseFactory(ctrl.signal)
   p.catch(() => {}) // evita unhandled rejection quando um canal falha
-  return Promise.race([p.finally(() => clearTimeout(t)), new Promise((_, rej) => ctrl.signal.addEventListener('abort', () => rej(Object.assign(new Error('tempo esgotado'), { name: 'AbortError' }))))])
+  return Promise.race<T>([p.finally(() => clearTimeout(t)) as Promise<T>, new Promise<T>((_, rej) => ctrl.signal.addEventListener('abort', () => rej(Object.assign(new Error('tempo esgotado'), { name: 'AbortError' }))))])
 }
 
 function buildCandidates(url, method, body, headers) {
@@ -26,7 +26,7 @@ function buildCandidates(url, method, body, headers) {
   const list = []
   if (process.env.TRAINS_PROXY_URL) {
     // coloque aqui um proxy seu, ex.: https://meu-proxy.example.com/?url=
-    list.push({ url: process.env.TRAINS_PROXY_URL + encoded })
+    list.push({ url: process.env.TRAINS_PROXY_URL! + encoded })
   }
   list.push({ url, method, body, headers })
   // Proxies CORS públicos (podem exigir chave/estar indisponíveis — por isso
@@ -43,7 +43,9 @@ function buildCandidates(url, method, body, headers) {
  * Faz uma requisição ao HAFAS tentando todos os canais disponíveis.
  * @returns {Promise<any>} JSON parseado
  */
-export async function hafasRequest({ url, method = 'GET', body = null, headers = {} }) {
+interface HafasRequestOpts { url: string; method?: string; body?: string | null; headers?: Record<string, string> }
+
+export async function hafasRequest({ url, method = 'GET', body = null, headers = {} }: HafasRequestOpts): Promise<any> {
   const baseHeaders = {
     Accept: 'application/json',
     'User-Agent': UA,
@@ -52,7 +54,7 @@ export async function hafasRequest({ url, method = 'GET', body = null, headers =
     ...headers
   }
   const candidates = buildCandidates(url, method, body, baseHeaders)
-  let lastStatus = null
+  let lastStatus: number | null = null
   for (const c of candidates) {
     try {
       const res = await withTimeout(

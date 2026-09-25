@@ -17,7 +17,7 @@
 
 const DEFAULT_BASE = 'https://www.buscapassagem.com.br/v2/api/public/search'
 const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutos
-const cache = new Map()
+const cache = new Map<string, { at: number; payload: any }>()
 
 function envKey() {
   return process.env.BUSCAPASSAGEM_KEY || process.env.BUSCAPASSAGEM_TOKEN || ''
@@ -28,7 +28,7 @@ function baseUrl() {
 }
 
 // Normaliza "São Paulo - SP, BR" -> "SAO PAULO"; "Rio de Janeiro" -> "RIO DE JANEIRO"
-export function normalizeCity(name) {
+export function normalizeCity(name: string): string {
   return String(name || '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -39,19 +39,19 @@ export function normalizeCity(name) {
     .trim()
 }
 
-function toMinutes(iso) {
+function toMinutes(iso: string | undefined | null): Date | null {
   if (!iso) return null
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-function fmtHM(d) {
+function fmtHM(d: Date | null): string | null {
   if (!d) return null
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 // Converte o payload da HaFFas/BuscaPassagem no formato das nossas cotações
-function mapResults(json, origin, destination, date) {
+function mapResults(json: any, origin: string, destination: string, date: string) {
   const raw = json?.results ?? json?.data ?? json?.searches?.[0]?.results ?? []
   if (!Array.isArray(raw)) return []
   const out = []
@@ -61,7 +61,7 @@ function mapResults(json, origin, destination, date) {
       if (!Number.isFinite(price) || price <= 0) continue
       const dep = toMinutes(r.departure_date ?? r.departureDate ?? r.departure)
       const arr = toMinutes(r.arrival_date ?? r.arrivalDate ?? r.arrival)
-      const durationMin = dep && arr ? Math.round((arr - dep) / 60000) : null
+      const durationMin = dep && arr ? Math.round((arr.getTime() - dep.getTime()) / 60000) : null
       out.push({
         mode: 'onibus',
         from: r.origin_city || r.from || origin,
@@ -83,7 +83,7 @@ function mapResults(json, origin, destination, date) {
   return out.sort((a, b) => a.price - b.price).slice(0, 30)
 }
 
-async function fetchWithTimeout(url, options, ms = 15000) {
+async function fetchWithTimeout(url: string, options: RequestInit, ms = 15000) {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), ms)
   try {
@@ -97,7 +97,7 @@ async function fetchWithTimeout(url, options, ms = 15000) {
  * Busca horários/preços reais de ônibus (HaFFas/BuscaPassagem).
  * @returns {Promise<{count:number, results:Array}>}
  */
-export async function searchTransport({ origin, destination, date }) {
+export async function searchTransport({ origin, destination, date }: { origin: string; destination: string; date: string }) {
   if (!origin || !destination) throw new Error('informe origem e destino')
   if (!date) throw new Error('informe a data da viagem')
 
@@ -108,13 +108,13 @@ export async function searchTransport({ origin, destination, date }) {
   const cached = cache.get(key)
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.payload
 
-  const headers = { Accept: 'application/json' }
+  const headers: Record<string, string> = { Accept: 'application/json' }
   const apiKey = envKey()
   if (apiKey) headers['x-api-key'] = apiKey
 
   const target = `${baseUrl()}?origin=${encodeURIComponent(o)}&destination=${encodeURIComponent(d)}&date=${encodeURIComponent(date)}`
 
-  let res
+  let res: Response
   try {
     res = await fetchWithTimeout(target, { headers })
   } catch (e) {
@@ -138,9 +138,9 @@ export async function searchTransport({ origin, destination, date }) {
     throw new Error(`Erro ${res.status} na consulta à HaFFas/BuscaPassagem. Tente novamente ou salve a cotação manualmente.`)
   }
 
-  let json
+  let json: any
   try { json = await res.json() } catch { json = {} }
-  const payload = { count: 0, results: [] }
+  const payload: { count: number; results: any[] } = { count: 0, results: [] }
   try {
     const results = mapResults(json, o, d, date)
     payload.count = results.length
