@@ -7,13 +7,21 @@
   "scripts": {
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\"",
     "dev:client": "vite",
-    "dev:server": "node server/index.js",
+    "dev:server": "npm --prefix server run dev",
     "build": "vite build",
+    "build:server": "npm --prefix server run build",
     "preview": "vite preview",
-    "start": "NODE_ENV=production node server/index.js"
+    "start": "NODE_ENV=production npm --prefix server run start"
   },
   "dependencies": {
-    "express": "^4.19.2"
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.2",
+    "better-sqlite3": "^12.11.1",
+    "cors": "^2.8.6",
+    "ts-node": "^10.9.2",
+    "typescript": "^7.0.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
