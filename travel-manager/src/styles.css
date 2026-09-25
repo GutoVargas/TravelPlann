@@ -162,3 +162,47 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--primary); b
 .empty { text-align: center; padding: 48px 20px; display: flex; flex-direction: column; gap: 14px; align-items: center; }
 
 .footer { text-align: center; color: var(--muted); font-size: .8rem; margin-top: 40px; opacity: .7; }
+
+/* ---- Abas da viagem ---- */
+.tabs { display: flex; gap: 8px; margin: 18px 0 14px; flex-wrap: wrap; }
+.tabs button {
+  background: var(--surface2); border: 1px solid transparent; color: var(--text);
+  padding: 9px 16px; border-radius: 999px; cursor: pointer; font-size: .9rem;
+}
+.tabs button.active { background: var(--primary); color: #fff; font-weight: 600; }
+
+.small-text { font-size: .82rem; }
+
+/* ---- Cotações de transporte ---- */
+.quote-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.quote-form input, .quote-form select { background: var(--surface2); border: 1px solid rgba(148,163,184,.2); color: var(--text); padding: 9px 10px; border-radius: 8px; min-width: 110px; flex: 1; }
+.quote-form .arrow { color: var(--muted); }
+.quote-summary { display: flex; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: .85rem; margin-bottom: 8px; }
+ul.quotes { list-style: none; }
+ul.quotes li { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid rgba(148,163,184,.1); }
+ul.quotes li.purchased { opacity: .75; }
+.quote-price { width: 92px; flex: none !important; background: var(--surface2); border: 1px solid rgba(148,163,184,.2); color: var(--text); padding: 6px 8px; border-radius: 8px; }
+.badge-ok { font-size: .78rem; color: #4ade80; white-space: nowrap; }
+.btn-small {
+  background: var(--surface2); border: 1px solid rgba(148,163,184,.25); color: var(--text);
+  padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: .8rem; white-space: nowrap; text-decoration: none;
+}
+.btn-small:hover { border-color: var(--primary); }
+
+/* ---- Documentos ---- */
+.doc-controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.doc-controls select { background: var(--surface2); border: 1px solid rgba(148,163,184,.2); color: var(--text); padding: 8px 10px; border-radius: 8px; flex: 1; min-width: 160px; }
+.dropzone {
+  display: block; text-align: center; padding: 22px; border-radius: 12px; cursor: pointer;
+  border: 2px dashed rgba(148,163,184,.35); color: var(--muted); margin-bottom: 12px;
+}
+.dropzone:hover, .dropzone.busy { border-color: var(--primary); color: var(--text); }
+ul.docs { list-style: none; }
+ul.docs li { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid rgba(148,163,184,.1); }
+ul.docs li strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; display: block; }
+
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+.modal-body { background: var(--surface); border-radius: 14px; max-width: 90vw; max-height: 90vh; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.doc-img { max-width: 80vw; max-height: 75vh; object-fit: contain; border-radius: 8px; }
+.pdf-viewer { width: 78vw; height: 75vh; border: none; border-radius: 8px; background: #fff; }

@@ -76,12 +76,13 @@ export default function App() {
           />
         )}
 
-        {view === 'detail' && selected && (
+        {view === 'detail' && selectedId && (
           <TripDetail
-            trip={selected}
+            key={selectedId}
+            tripId={selectedId}
             onBack={() => setView('trips')}
             onEdit={() => openEdit(selected)}
-            onChanged={refresh}
+            onChangedTrip={refresh}
           />
         )}
       </main>

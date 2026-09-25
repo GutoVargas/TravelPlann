@@ -11,6 +11,15 @@ async function request(path, options = {}) {
   return data
 }
 
+// Lê um File como data URL (base64) para envio à API
+export const readFileAsDataURL = (file) =>
+  new Promise((resolve, reject) => {
+    const fr = new FileReader()
+    fr.onload = () => resolve(fr.result)
+    fr.onerror = () => reject(new Error('Falha ao ler o arquivo'))
+    fr.readAsDataURL(file)
+  })
+
 export const api = {
   stats: () => request('/stats'),
   listTrips: () => request('/trips'),
@@ -20,7 +29,36 @@ export const api = {
   deleteTrip: (id) => request(`/trips/${id}`, { method: 'DELETE' }),
   addExpense: (tripId, exp) => request(`/trips/${tripId}/expenses`, { method: 'POST', body: JSON.stringify(exp) }),
   updateExpense: (tripId, eid, exp) => request(`/trips/${tripId}/expenses/${eid}`, { method: 'PUT', body: JSON.stringify(exp) }),
-  deleteExpense: (tripId, eid) => request(`/trips/${tripId}/expenses/${eid}`, { method: 'DELETE' })
+  deleteExpense: (tripId, eid) => request(`/trips/${tripId}/expenses/${eid}`, { method: 'DELETE' }),
+  // cotações de transporte
+  listQuotes: (tripId) => request(`/trips/${tripId}/quotes`),
+  addQuote: (tripId, q) => request(`/trips/${tripId}/quotes`, { method: 'POST', body: JSON.stringify(q) }),
+  updateQuote: (tripId, qid, q) => request(`/trips/${tripId}/quotes/${qid}`, { method: 'PUT', body: JSON.stringify(q) }),
+  deleteQuote: (tripId, qid) => request(`/trips/${tripId}/quotes/${qid}`, { method: 'DELETE' }),
+  convertQuote: (tripId, qid) => request(`/trips/${tripId}/quotes/${qid}/convert`, { method: 'POST' }),
+  // documentos (ingressos, passagens, comprovantes)
+  listDocs: (tripId) => request(`/trips/${tripId}/docs`),
+  getDoc: (tripId, did) => request(`/trips/${tripId}/docs/${did}`),
+  uploadDoc: (tripId, doc) => request(`/trips/${tripId}/docs`, { method: 'POST', body: JSON.stringify(doc) }),
+  deleteDoc: (tripId, did) => request(`/trips/${tripId}/docs/${did}`, { method: 'DELETE' })
+}
+
+export const TRANSPORT_MODES = {
+  aviao: { label: '✈️ Avião' },
+  onibus: { label: '🚌 Ônibus' },
+  carro: { label: '🚗 Carro / aluguel' },
+  trem: { label: '🚆 Trem / metrô' },
+  barco: { label: '⛴️ Barco / balsa' },
+  voo_interno: { label: '🛩️ Voo interno' },
+  outro: { label: '🧭 Outro' }
+}
+
+export const DOC_TYPES = {
+  passagem: { label: '🎫 Passagem' },
+  ingresso: { label: '🎟️ Ingresso' },
+  comprovante: { label: '🧾 Comprovante' },
+  reserva: { label: '🏨 Reserva' },
+  outro: { label: '📎 Outro' }
 }
 
 export const CATEGORIES = {
