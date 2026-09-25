@@ -41,7 +41,7 @@ function sanitizeQuote(data) {
     if (!TRANSPORT_MODES.includes(data.mode)) throw new Error('tipo de transporte inválido')
     out.mode = data.mode
   }
-  for (const f of ['from', 'to', 'company', 'date', 'notes']) {
+  for (const f of ['from', 'to', 'company', 'date', 'notes', 'busType']) {
     if (data[f] !== undefined) out[f] = String(data[f]).slice(0, 200)
   }
   if (data.price !== undefined) {
@@ -50,6 +50,16 @@ function sanitizeQuote(data) {
     out.price = Math.round(p * 100) / 100
   }
   if (data.purchased !== undefined) out.purchased = !!data.purchased
+  // campos opcionais de resultados de busca real (ex.: HaFFas / BuscaPassagem)
+  for (const f of ['source', 'url']) {
+    if (data[f] !== undefined) out[f] = String(data[f]).slice(0, 500)
+  }
+  if (data.durationMin !== undefined) {
+    const d = Number(data.durationMin)
+    out.durationMin = Number.isFinite(d) && d >= 0 ? Math.round(d) : null
+  }
+  if (data.departureTime !== undefined) out.departureTime = String(data.departureTime).slice(0, 16)
+  if (data.arrivalTime !== undefined) out.arrivalTime = String(data.arrivalTime).slice(0, 16)
   return out
 }
 

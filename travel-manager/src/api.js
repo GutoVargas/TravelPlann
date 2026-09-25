@@ -22,6 +22,10 @@ export const readFileAsDataURL = (file) =>
 
 export const api = {
   stats: () => request('/stats'),
+  searchTransport: (params) => {
+    const q = new URLSearchParams(params).toString()
+    return request(`/search-transport?${q}`)
+  },
   listTrips: () => request('/trips'),
   getTrip: (id) => request(`/trips/${id}`),
   createTrip: (trip) => request('/trips', { method: 'POST', body: JSON.stringify(trip) }),

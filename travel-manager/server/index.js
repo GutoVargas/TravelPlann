@@ -11,6 +11,7 @@ import {
   listQuotes, addQuote, updateQuote, deleteQuote, convertQuoteToExpense,
   listDocs, getDoc, addDoc, updateDoc, deleteDoc
 } from './db.js'
+import { searchTransport } from './searchTransport.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(__dirname, '..', 'dist')
@@ -53,6 +54,16 @@ async function handleApi(req, res, url) {
 
     // GET /api/stats
     if (parts[1] === 'stats' && req.method === 'GET') return sendJson(res, 200, stats())
+
+    // GET /api/search-transport?origin=São Paulo&destination=Rio de Janeiro&date=2026-10-01
+    // Busca preços/horários reais de ônibus na HaFFas (via BuscaPassagem)
+    if (parts[1] === 'search-transport' && req.method === 'GET') {
+      const origin = url.searchParams.get('origin') || ''
+      const destination = url.searchParams.get('destination') || ''
+      const date = url.searchParams.get('date') || ''
+      const data = await searchTransport({ origin, destination, date })
+      return sendJson(res, 200, data)
+    }
 
     // /api/trips e /api/trips/:id
     if (parts[1] === 'trips') {
