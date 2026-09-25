@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { api, readFileAsDataURL, DOC_TYPES } from '../api.js'
+import { api, off, readFileAsDataURL, DOC_TYPES } from '../api.js'
 
 const MAX_MB = 3.5
 
@@ -39,8 +39,20 @@ export default function Documents({ tripId, docs, expenses = [], onChanged, onEr
 
   const openDoc = async (id) => {
     try {
+      const local = await off.getLocalDoc(id)
+      if (local?.data) {
+        // offline-first: abre direto do cache IndexedDB (blob → objectURL)
+        const [head, b64] = String(local.data).split(',')
+        const mime = (head.match(/data:([^;]+)/) || [, 'application/octet-stream'])[1]
+        const bin = atob(b64)
+        const bytes = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+        const url = URL.createObjectURL(new Blob([bytes], { type: mime }))
+        setPreview({ ...local, mimeType: local.mimeType || mime, url, blobUrl: true })
+        return
+      }
       const meta = await api.getDoc(tripId, id)
-      setPreview({ ...meta, url: `/api/trips/${tripId}/docs/${id}/file` })
+      setPreview({ ...meta, url: api.docUrl(tripId, id) })
     } catch (err) { onError(err.message) }
   }
 
@@ -71,6 +83,9 @@ export default function Documents({ tripId, docs, expenses = [], onChanged, onEr
         </select>
       </div>
 
+      {!navigator.onLine && (
+        <p className="muted small-text">📴 Você está offline — pode subir mesmo assim: o arquivo fica salvo no aparelho e sincroniza sozinho ao reconectar.</p>
+      )}
       <label className={`dropzone ${uploading ? 'busy' : ''}`}>
         <input
           ref={inputRef}
@@ -108,6 +123,7 @@ export default function Documents({ tripId, docs, expenses = [], onChanged, onEr
         <div className="modal" onClick={() => setPreview(null)}>
           <div className="modal-body" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
+              {!navigator.onLine && <span className="offline-chip">📴 offline</span>}
               <strong>{preview.name}</strong>
               <div>
                 <a className="btn-small" href={preview.url} download={preview.name}>⬇️ Baixar</a>

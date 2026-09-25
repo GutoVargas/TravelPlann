@@ -71,7 +71,8 @@ const toRow = (table, obj) => {
     else if (col === 'purchased') v = v ? 1 : 0
     out[col] = v
   }
-  out.id = Number(obj.id)
+  const nid = Number(obj.id)
+  out.id = Number.isFinite(nid) ? nid : undefined
   return out
 }
 
@@ -93,14 +94,17 @@ async function refreshPending() {
 }
 
 // ---------- bootstrap: snapshot inicial quando nunca sincronizamos ----------
-export async function ensureBootstrapped(fetchSnapshot) {
+export async function ensureBootstrapped(fetchFullSnapshot) {
   const cursor = await getMeta('cursor')
   if (cursor != null) return false
   try {
-    const snapshot = await fetchSnapshot() // lista completa de viagens com sub-arrays
-    await loadFromApi(snapshot)
-    await setMeta('cursor', 0)
+    const data = await fetchFullSnapshot() // { serverTime, changes:[{table,rowId,action,payload}] }
+    for (const ch of data.changes || []) {
+      if (ch.action === 'upsert' && ch.payload && ch.payload.id != null) await applyServerRow(ch.table, ch.payload)
+    }
+    await setMeta('cursor', Math.floor(Number(data.serverTime) || 0))
     emit({ lastSync: Date.now() })
+    cacheMissingDocFiles().catch(() => {})
     return true
   } catch {
     return false // sem servidor e sem cache: primeira carga falhou, tenta depois
@@ -224,6 +228,10 @@ export async function syncNow(apiFetch) {
       const changes = items.map(({ qid, table, action, row }) => ({ qid, table, action, row, id: row?.id }))
       const out = await apiFetch('/sync/push', { method: 'POST', body: JSON.stringify({ clientId, changes }) })
       const failedQids = new Set((out.failed || []).map((f) => f.change?.qid).filter((x) => x != null))
+      // servidor devolveu ids reais p/ inserts locais → remapeia no espelho e nas refs cruzadas
+      for (const r of out.remap || []) {
+        if (r.oldId !== r.newId) await remapLocalId(r.table, r.oldId, r.newId)
+      }
       await tx(QUEUE, 'readwrite', (s) => { for (const it of items) if (!failedQids.has(it.qid)) s.delete(it.qid) })
       if (out.failed?.length) console.warn('sync: mudanças rejeitadas pelo servidor', out.failed)
     }
@@ -279,4 +287,82 @@ export function startAutoSync(apiFetch) {
   document.addEventListener('visibilitychange', () => { if (!document.hidden) syncNow(apiFetch) })
   setInterval(() => { if (navigator.onLine) syncNow(apiFetch) }, 30000)
   setTimeout(() => syncNow(apiFetch), 1500)
+}
+
+// menor id local da tabela (para gerar ids negativos temporários offline)
+export async function getMinLocalId(table) {
+  const rows = await tx(table, 'readonly', (s) => s.getAllKeys())
+  const nums = (rows || []).map(Number).filter((n) => Number.isFinite(n))
+  return nums.length ? Math.min(0, ...nums) : 0
+}
+
+// troca um id local (negativo) pelo id real do servidor, inclusive em referências cruzadas
+export async function remapLocalId(table, oldId, newId) {
+  oldId = Number(oldId); newId = Number(newId)
+  if (!Number.isFinite(oldId) || !Number.isFinite(newId) || oldId === newId) return
+  const row = await tx(table, 'readonly', (s) => s.get(oldId))
+  if (!row) return
+  await tx(table, 'readwrite', (s) => { s.delete(oldId); s.put({ ...row, id: newId }) })
+  if (table === 'expenses') {
+    const qs = await tx('transport_quotes', 'readonly', (s) => s.getAll())
+    for (const q of qs || []) if (Number(q.expense_id) === oldId) await tx('transport_quotes', 'readwrite', (s) => s.put({ ...q, expense_id: newId }))
+  }
+  if (table === 'transport_quotes') {
+    const es = await tx('expenses', 'readonly', (s) => s.getAll())
+    for (const e of es || []) if (Number(e.quote_id) === oldId) await tx('expenses', 'readwrite', (s) => s.put({ ...e, quote_id: newId }))
+  }
+  if (table === 'documents') {
+    const es = await tx('expenses', 'readonly', (s) => s.getAll())
+    for (const e of es || []) {
+      try {
+        const ids = JSON.parse(e.document_ids || '[]')
+        if (ids.includes(oldId)) await tx('expenses', 'readwrite', (s) => s.put({ ...e, document_ids: JSON.stringify(ids.map((i) => (i === oldId ? newId : i))) }))
+      } catch { /* ignore */ }
+    }
+    const qs2 = await tx('transport_quotes', 'readonly', (s) => s.getAll())
+    void qs2
+  }
+  if (table === 'trips') {
+    for (const t of ['expenses', 'transport_quotes', 'documents']) {
+      const rows = await tx(t, 'readonly', (s) => s.getAll())
+      for (const r of rows || []) if (Number(r.trip_id) === oldId) await tx(t, 'readwrite', (s) => s.put({ ...r, trip_id: newId }))
+    }
+  }
+}
+
+// ---------- utilitários usados pelo cliente REST ----------
+export async function listQueue() {
+  const d = await openDB()
+  return new Promise((res) => { const r = d.transaction(QUEUE).objectStore(QUEUE).getAll(); r.onsuccess = () => res(r.result || []) })
+}
+export async function replaceQueueItem(qid, item) {
+  await tx(QUEUE, 'readwrite', (s) => s.put({ ...item, qid }))
+}
+export async function deleteQueueItem(qid) {
+  await tx(QUEUE, 'readwrite', (s) => s.delete(qid))
+}
+
+// empurra imediatamente as mudanças pendentes de UMA linha (ex.: usuário criou offline
+// e agora edita de novo estando online — o servidor precisa conhecer a linha antes do PUT)
+export async function flushQueueFor(table, id) {
+  if (!navigator.onLine) return false
+  const items = await listQueue()
+  const mine = items.filter((it) => it.table === table && Number(it.row?.id ?? it.row?.id) === Number(id))
+  if (!mine.length) return false
+  const clientId = await getClientId()
+  const res = await fetch('/api/sync/push', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clientId, changes: mine.map(({ qid, table, action, row }) => ({ qid, table, action, row, id: row?.id })) })
+  })
+  if (!res.ok) throw new Error('flush falhou')
+  const out = await res.json()
+  const failedQids = new Set((out.failed || []).map((f) => f.change?.qid).filter((x) => x != null))
+  for (const it of mine) {
+    if (failedQids.has(it.qid)) continue
+    await deleteQueueItem(it.qid)
+    const r = (out.remap || []).find((m) => m.oldId === Number(it.row?.id))
+    if (r && r.oldId !== r.newId) await remapLocalId(table, r.oldId, r.newId)
+  }
+  refreshPending()
+  return true
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { api } from './api.js'
+import { api, initOffline } from './api.js'
+import OfflineBanner from './components/OfflineBanner.jsx'
 import Dashboard from './components/Dashboard.jsx'
 import TripList from './components/TripList.jsx'
 import TripForm from './components/TripForm.jsx'
@@ -28,7 +29,12 @@ export default function App() {
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    // bootstrap offline-first: snapshot inicial + sync automática em background
+    initOffline().finally(refresh)
+    const t = setInterval(refresh, 15000) // re-renderiza quando a sync local mudar
+    return () => clearInterval(t)
+  }, [refresh])
 
   const openNew = () => { setEditing(null); setView('form') }
   const openEdit = (trip) => { setEditing(trip); setView('form') }
@@ -57,6 +63,7 @@ export default function App() {
         </nav>
       </header>
 
+      <OfflineBanner />
       {error && <div className="toast error" onClick={() => setError('')}>⚠️ {error}</div>}
 
       <main>
