@@ -14,55 +14,42 @@ function fmtDuration(min) {
   return h > 0 ? `${h}h${m ? String(m).padStart(2, '0') : ''}` : `${m}min`
 }
 
-const PROVIDERS = {
-  onibus: {
-    label: '🚌 Ônibus no Brasil',
-    hint: 'HaFFas / BuscaPassagem — câmara de compensação do transporte rodoviário BR.',
-    api: 'searchTransport',
-    originPh: 'Cidade de origem (ex.: São Paulo)',
-    destPh: 'Cidade de destino',
-    searchLabel: 'Buscar ônibus'
-  },
-  trem: {
-    label: '🚆 Trem na Europa',
-    hint: 'HAFAS europeu (base oficial da Deutsche Bahn/ÖBB/SBB) — horários, duração, conexões e preço "ab X €" quando disponível. Basta digitar a cidade (ex.: "Munique", "Paris", "Viena") e escolher uma estação na lista que aparece — não precisa saber o nome exato.',
-    api: 'searchTrains',
-    originPh: 'Origem — digite a cidade (ex.: Munique)',
-    destPh: 'Destino — digite a cidade (ex.: Berlim)',
-    searchLabel: 'Buscar trens'
-  }
-}
+// Modos de rota suportados pelo Google Routes API (+ estimativa de voo)
+export const ROUTE_MODES = [
+  { key: 'DRIVE', label: '🚗 Carro' },
+  { key: 'TRANSIT', label: '🚆 Trem / ônibus / metrô' },
+  { key: 'WALK', label: '🚶 A pé' },
+  { key: 'BICYCLE', label: '🚲 Bicicleta' },
+  { key: 'FLIGHT', label: '✈️ Voo (estimativa)' }
+]
 
-// Campo de estação com AUTOCOMPLETE — ninguém precisa saber o nome exato.
-// Enquanto você digita (2+ letras), busca sugestões reais no HAFAS e mostra
-// uma lista para clicar. Se o provedor estiver bloqueado/offline, cai num
-// CACHE local (IndexedDB): histórico de sugestões que já funcionaram + um
-// dicionário embutido de cidades europeias em PT-BR (Munique→München Hbf…).
-function StopInput({ placeholder, value, onChange, enabled }) {
+// Campo de lugar com AUTOCOMPLETE real do Google Places — ninguém precisa
+// saber o nome exato. Enquanto você digita (2+ letras), o backend consulta
+// places:autocomplete e mostra a lista para clicar. Sem internet/chave/bloqueio,
+// cai no CACHE local (IndexedDB): histórico aprendido + dicionário PT-BR.
+function PlaceInput({ placeholder, value, onChange }) {
   const [suggestions, setSuggestions] = useState([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [fromCache, setFromCache] = useState(false)
 
   useEffect(() => {
-    if (!enabled) { setSuggestions([]); return }
     const q = String(value || '').trim()
+    // se o usuário escolheu uma sugestão exata ("Nome — detalhe"), não reabre
+    if (suggestions.some((s) => s.name === q || s.text === q)) return
     if (q.length < 2) { setSuggestions([]); return }
-    // se o usuário já escolheu uma sugestão exata, não reabre a lista
-    if (suggestions.some((s) => s.name === q)) { return }
     let cancelled = false
     setLoading(true)
     const t = setTimeout(async () => {
       try {
-        const r = await api.suggestStops(q)
-        const list = r?.results || []
+        const r = await api.suggestPlaces(q)
+        const list = (r?.results || []).map((x) => ({ name: x.text || x.name, text: x.text, placeId: x.placeId }))
         if (cancelled) return
         if (list.length > 0) {
           setSuggestions(list)
           setFromCache(false)
-          cacheStops(list) // aprende para uso futuro offline
+          cacheStops(list.map((x) => ({ name: x.name, district: '' })))
         } else {
-          // provedor vazio/bloqueado → fallback do cache local
           setSuggestions(await localStopSuggestions(q))
           setFromCache(true)
         }
@@ -73,9 +60,9 @@ function StopInput({ placeholder, value, onChange, enabled }) {
       } finally {
         if (!cancelled) setLoading(false)
       }
-    }, 350) // debounce: evita martelar a API a cada tecla
+    }, 350)
     return () => { cancelled = true; clearTimeout(t) }
-  }, [value, enabled])
+  }, [value])
 
   return (
     <div className="stop-input">
@@ -86,8 +73,8 @@ function StopInput({ placeholder, value, onChange, enabled }) {
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 180)}
       />
-      {enabled && loading && <span className="ac-spinner" title="buscando estações…">⏳</span>}
-      {enabled && open && suggestions.length > 0 && (
+      {loading && <span className="ac-spinner" title="buscando lugares…">⏳</span>}
+      {open && suggestions.length > 0 && (
         <>
           {fromCache && <div className="ac-note">💾 sugestões locais (offline/sem resposta do provedor)</div>}
           <ul className="autocomplete">
@@ -97,7 +84,7 @@ function StopInput({ placeholder, value, onChange, enabled }) {
                   type="button"
                   onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setSuggestions([]); setOpen(false) }}
                 >
-                  🚉 {s.name}{s.district && s.district !== s.name ? ` — ${s.district}` : ''}
+                  📍 {s.name}{s.district && s.district !== s.name ? ` — ${s.district}` : ''}
                 </button>
               </li>
             ))}
@@ -108,44 +95,63 @@ function StopInput({ placeholder, value, onChange, enabled }) {
   )
 }
 
-// TELA DE BUSCA GLOBAL DE TRANSPORTE — independente de viagem.
-// O usuário escolhe o provedor (ônibus BR / trem Europa), busca preços e
-// tempos reais e salva a cotação direto na viagem desejada (ou várias).
+// Mapa estático do Google (ou link para o Google Maps) desenhando a rota.
+function RouteMap({ route, originLocation, destinationLocation }) {
+  if (!route?.polyline || !originLocation || !destinationLocation) {
+    const q = encodeURIComponent(`${route?.originName || ''} to ${route?.destinationName || ''}`)
+    return (
+      <a className="maps-link" href={`https://www.google.com/maps/dir/?api=1&origin=${originLocation?.latitude},${originLocation?.longitude}&destination=${destinationLocation?.latitude},${destinationLocation?.longitude}&travelmode=${(route?.mode || 'drive').toLowerCase()}`} target="_blank" rel="noreferrer">
+        🗺️ Abrir rota no Google Maps
+      </a>
+    )
+  }
+  return (
+    <iframe
+      title="mapa da rota"
+      className="route-map"
+      loading="lazy"
+      src={`https://www.google.com/maps/embed/v1/directions?origin=${originLocation.latitude},${originLocation.longitude}&destination=${destinationLocation.latitude},${destinationLocation.longitude}&mode=${(route.mode || 'DRIVE').toLowerCase()}&zoom=7`}
+    />
+  )
+}
+
+// TELA DE BUSCA GLOBAL — rotas, mapas e tempo de deslocamento via Google.
 export default function GlobalSearch({ trips, onError, onSaved }) {
-  const [provider, setProvider] = useState('onibus')
   const [form, setForm] = useState({ origin: '', destination: '', date: '' })
+  const [modes, setModes] = useState(['DRIVE', 'TRANSIT'])
   const [tripId, setTripId] = useState(trips[0]?.id || '')
   const [searching, setSearching] = useState(false)
-  const [results, setResults] = useState(null) // {items, channel}
+  const [result, setResult] = useState(null) // {origin,destination,routes,...}
+  const [selected, setSelected] = useState(0)
   const [savedTags, setSavedTags] = useState([])
   const [recents, setRecents] = useState(loadRecents)
+  const [googleReady, setGoogleReady] = useState(null) // null=desconhecido
 
   useEffect(() => { localStorage.setItem(RECENTS_KEY, JSON.stringify(recents.slice(0, 6))) }, [recents])
+  useEffect(() => { api.googleStatus().then((r) => setGoogleReady(!!r?.hasKey)).catch(() => setGoogleReady(false)) }, [])
 
-  const rememberSearch = () => {
-    const item = { provider, origin: form.origin.trim(), destination: form.destination.trim(), date: form.date, at: Date.now() }
-    setRecents((prev) => [item, ...prev.filter((r) => !(r.provider === item.provider && r.origin === item.origin && r.destination === item.destination && r.date === item.date))].slice(0, 6))
-  }
-
-  const p = PROVIDERS[provider]
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const toggleMode = (k) =>
+    setModes((prev) => (prev.includes(k) ? prev.filter((m) => m !== k) : [...prev, k]))
 
   const runSearch = async (e) => {
     e.preventDefault()
-    if (!form.origin.trim() || !form.destination.trim() || !form.date) {
-      onError('Preencha origem, destino e data para buscar')
+    if (!form.origin.trim() || !form.destination.trim()) {
+      onError('Informe origem e destino')
       return
     }
+    if (!modes.length) { onError('Escolha ao menos um meio de transporte'); return }
     setSearching(true)
-    setResults(null)
+    setResult(null)
+    setSelected(0)
     try {
-      const data = await api[p.api]({
+      const data = await api.routes({
         origin: form.origin.trim(),
         destination: form.destination.trim(),
-        date: form.date
+        modes: modes.join(','),
+        ...(form.date ? { date: form.date } : {})
       })
-      setResults({ items: data.results || [], channel: data.channel || '' })
-      rememberSearch()
+      setResult(data)
+      setRecents((prev) => [{ provider: 'google', origin: form.origin.trim(), destination: form.destination.trim(), date: form.date, at: Date.now() }, ...prev.filter((r) => !(r.origin === form.origin.trim() && r.destination === form.destination.trim()))].slice(0, 6))
     } catch (err) {
       onError(err.message)
     } finally {
@@ -153,30 +159,29 @@ export default function GlobalSearch({ trips, onError, onSaved }) {
     }
   }
 
-  const tagOf = (r) => `${provider}|${r.company}|${r.departureTime}|${r.price}|${r.from}→${r.to}`
+  const tagOf = (r) => `google|${r.mode}|${r.originName}→${r.destinationName}|${r.durationMin}|${r.distanceKm}`
 
-  const saveResult = async (r) => {
-    if (!tripId) { onError('Selecione a viagem onde salvar esta cotação'); return }
+  const saveRoute = async (r) => {
+    if (!tripId) { onError('Selecione a viagem onde salvar esta rota'); return }
+    const modeMap = { DRIVE: 'carro', TRANSIT: 'trem', WALK: 'onibus', BICYCLE: 'carro', FLIGHT: 'aviao' }
     try {
       await api.addQuote(Number(tripId), {
-        mode: r.mode || provider,
-        from: r.from, to: r.to,
-        company: r.company,
-        price: r.price,
-        date: r.date,
+        mode: modeMap[r.mode] || 'outro',
+        from: r.originName, to: r.destinationName,
+        company: `Google Rotas · ${r.label}`,
+        price: 0,
+        date: form.date || undefined,
         notes: [
-          r.busType && `Veículo ${r.busType}`,
-          r.departureTime && `saída ${r.departureTime}`,
-          r.arrivalTime && `chegada ${r.arrivalTime}`,
-          r.durationMin != null && `duração ${fmtDuration(r.durationMin)}`,
-          r.source === 'hafas-eu' ? 'Fonte: HAFAS (Europa)' : 'Fonte: HaFFas'
+          `${fmtDuration(r.durationMin)} · ${r.distanceKm} km`,
+          r.legs?.length > 1 && `${r.legs.length} trechos (${r.legs.map((l) => l.label.split(' ')[0]).join('+')})`,
+          r.trafficDelayMin > 0 && `trânsito +${r.trafficDelayMin}min`,
+          r.fallbackStraightLine && 'estimativa linha reta',
+          'Fonte: Google Routes'
         ].filter(Boolean).join(' · '),
-        busType: r.busType,
+        durationMin: r.durationMin,
         departureTime: r.departureTime,
         arrivalTime: r.arrivalTime,
-        durationMin: r.durationMin,
-        source: r.source,
-        url: r.url
+        source: 'google-routes'
       })
       setSavedTags((prev) => [...prev, tagOf(r)])
       onSaved?.()
@@ -184,58 +189,52 @@ export default function GlobalSearch({ trips, onError, onSaved }) {
   }
 
   const swap = () => setForm((f) => ({ ...f, origin: f.destination, destination: f.origin }))
-  const applyRecent = (r) => { setProvider(r.provider); setForm({ origin: r.origin, destination: r.destination, date: r.date }); setResults(null) }
+  const applyRecent = (r) => { setForm({ origin: r.origin, destination: r.destination, date: r.date }); setResult(null) }
 
   const activeTrips = trips.filter((t) => t.status !== 'concluida')
+  const best = result?.routes?.[0]
 
   return (
     <section>
-      <h1>🔎 Buscar transporte</h1>
+      <h1>🔎 Rotas & deslocamentos</h1>
       <p className="muted">
-        Pesquise preços e tempos reais antes de decidir — depois salve a cotação na sua viagem
-        e, quando comprar, lance tudo nos gastos com um clique.
+        Tempos, distâncias e rotas reais do Google Maps para qualquer lugar do mundo — carro,
+        trem/transporte público, a pé, bicicleta ou voo. Salve a opção escolhida na sua viagem
+        e, quando comprar, lance nos gastos com um clique.
       </p>
 
-      <div className="card panel">
-        {/* Seletor de provedor */}
-        <div className="provider-tabs">
-          {Object.entries(PROVIDERS).map(([k, v]) => (
-            <button
-              key={k}
-              className={`provider-tab ${provider === k ? 'active' : ''}`}
-              onClick={() => { setProvider(k); setResults(null) }}
-            >{v.label}</button>
-          ))}
+      {googleReady === false && (
+        <div className="card panel warn-panel">
+          ⚠️ <strong>Chave do Google não configurada.</strong> Abra o arquivo{' '}
+          <code>server/.env</code>, adicione <code>GOOGLE_MAPS_API_KEY=sua_chave</code> e reinicie o servidor.
+          Seus dados continuam funcionando offline normalmente.
         </div>
-        <p className="muted small-text">{p.hint}</p>
+      )}
 
+      <div className="card panel">
         <form className="quote-form" onSubmit={runSearch}>
-          <StopInput
-            placeholder={p.originPh}
-            value={form.origin}
-            onChange={(v) => setForm((f) => ({ ...f, origin: v }))}
-            enabled={provider === 'trem'}
-          />
+          <PlaceInput placeholder="Origem (ex.: São Paulo, Torre Eiffel, Aeroporto de Lisboa)" value={form.origin} onChange={(v) => setForm((f) => ({ ...f, origin: v }))} />
           <span className="arrow">→</span>
           <button type="button" className="btn-small swap" title="Inverter origem e destino" onClick={swap}>⇄</button>
-          <StopInput
-            placeholder={p.destPh}
-            value={form.destination}
-            onChange={(v) => setForm((f) => ({ ...f, destination: v }))}
-            enabled={provider === 'trem'}
-          />
-          <input type="date" value={form.date} onChange={set('date')} title="Data da viagem" />
+          <PlaceInput placeholder="Destino" value={form.destination} onChange={(v) => setForm((f) => ({ ...f, destination: v }))} />
+          <input type="date" value={form.date} onChange={(e) => setForm((f) => ({ ...f, date: e.target.value }))} title="Data/hora da partida (opcional)" />
           <button className="btn-primary" disabled={searching}>
-            {searching ? '⏳ Buscando…' : `🔍 ${p.searchLabel}`}
+            {searching ? '⏳ Consultando Google…' : '🔍 Buscar rotas'}
           </button>
         </form>
+
+        <div className="mode-chips">
+          {ROUTE_MODES.map((m) => (
+            <button key={m.key} type="button" className={`chip ${modes.includes(m.key) ? 'chip-on' : ''}`} onClick={() => toggleMode(m.key)}>{m.label}</button>
+          ))}
+        </div>
 
         {recents.length > 0 && (
           <div className="recent-chips">
             <span className="cat">🕘 Recentes:</span>
             {recents.map((r, i) => (
-              <button key={i} className="chip" onClick={() => applyRecent(r)} title={`${r.date} · ${r.provider === 'trem' ? '🚆 Europa' : '🚌 Brasil'}`}>
-                {(r.provider === 'trem' ? '🚆 ' : '🚌 ') + r.origin.split(' ')[0] + ' → ' + r.destination.split(' ')[0]}
+              <button key={i} className="chip" onClick={() => applyRecent(r)}>
+                🧭 {r.origin.split(',')[0]} → {r.destination.split(',')[0]}
               </button>
             ))}
           </div>
@@ -248,60 +247,70 @@ export default function GlobalSearch({ trips, onError, onSaved }) {
           ) : (
             <select value={tripId} onChange={(e) => setTripId(e.target.value)}>
               {(activeTrips.length ? activeTrips : trips).map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.title}{t.destination ? ` (${t.destination})` : ''}
-                </option>
+                <option key={t.id} value={t.id}>{t.title}{t.destination ? ` (${t.destination})` : ''}</option>
               ))}
             </select>
           )}
         </div>
-
-        {results !== null && results.items.length > 0 && (
-          <>
-            <p className="muted small-text">📡 {results.items.length} opção(ões) · fonte: {results.channel || 'dados reais do provedor'}</p>
-            <ul className="quotes search-results">
-            {results.items.map((r, i) => {
-              const tag = tagOf(r)
-              return (
-                <li key={i}>
-                  <span className="cat">{r.mode === 'trem' ? '🚆' : '🚌'} {r.company || 'Operadora'}</span>
-                  <div className="exp-desc">
-                    <strong>
-                      {r.departureTime || '?'} → {r.arrivalTime || '?'}
-                      {r.durationMin != null && ` (${fmtDuration(r.durationMin)})`}
-                    </strong>
-                    <span className="muted small">
-                      {r.from} → {r.to}{r.busType && ` · ${r.busType}`}{r.notes && ` · ${r.notes}`}
-                    </span>
-                  </div>
-                  <span className="quote-price-static">
-                    <strong>{r.price > 0 ? brl(r.price) : 'sob consulta'}</strong>
-                  </span>
-                  {savedTags.includes(tag) ? (
-                    <span className="badge-ok">✅ salva</span>
-                  ) : (
-                    <button className="btn-small" onClick={() => saveResult(r)}>＋ Salvar na viagem</button>
-                  )}
-                  {r.url && (
-                    <a className="btn-small link" href={r.url} target="_blank" rel="noreferrer" title="Comprar no site">🛒</a>
-                  )}
-                </li>
-              )
-            })}
-            </ul>
-          </>
-        )}
-        {results !== null && results.items.length === 0 && (
-          <p className="muted">Nenhum resultado. Confira a grafia das cidades/estações.</p>
-        )}
       </div>
+
+      {result && (
+        <div className="card panel">
+          <h2>🧭 {result.origin} → {result.destination}</h2>
+          {best && <p className="muted small-text">⏱️ Mais rápido: <strong>{best.label}</strong> · {fmtDuration(best.durationMin)} · {best.distanceKm} km</p>}
+          <div className="route-tabs">
+            {(result.routes || []).map((r, i) => (
+              <button key={i} className={`provider-tab ${selected === i ? 'active' : ''}`} onClick={() => setSelected(i)}>
+                {r.label}<br /><small>{fmtDuration(r.durationMin)}</small>
+              </button>
+            ))}
+          </div>
+          {result.errors?.map((er, i) => <p key={i} className="muted small-text">⚠️ {er}</p>)}
+
+          {result.routes?.[selected] && (() => {
+            const r = result.routes[selected]
+            const tag = tagOf(r)
+            return (
+              <div className="route-detail">
+                <RouteMap route={r} originLocation={result.originLocation} destinationLocation={result.destinationLocation} />
+                <div className="route-stats">
+                  <span>⏱️ <strong>{fmtDuration(r.durationMin)}</strong></span>
+                  <span>📏 <strong>{r.distanceKm} km</strong></span>
+                  {r.departureTime && <span>🛫 saída {new Date(r.departureTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>}
+                  {r.arrivalTime && <span>🏁 chegada {new Date(r.arrivalTime).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>}
+                  {r.trafficDelayMin > 0 && <span>🚦 trânsito +{r.trafficDelayMin}min</span>}
+                  {r.tolls && <span>🛑 pedágio ~{(r.tolls.amountMicros / 1_000_000).toFixed(2)} {r.tolls.currency}</span>}
+                </div>
+                {r.fallbackStraightLine && (
+                  <p className="ac-note">ℹ️ Estimativa teórica de voo direto (linha reta + check-in). Para preços reais de passagens, registre a cotação após consultar um buscador de voos.</p>
+                )}
+                {r.legs?.length > 1 && (
+                  <ul className="route-legs">
+                    {r.legs.map((l, i) => (
+                      <li key={i}><span className="cat">{l.label}</span> {fmtDuration(l.durationMin)} · {l.distanceKm} km</li>
+                    ))}
+                  </ul>
+                )}
+                {savedTags.includes(tag) ? (
+                  <span className="badge-ok">✅ salva na viagem</span>
+                ) : (
+                  <button className="btn-primary" onClick={() => saveRoute(r)}>＋ Salvar rota na viagem</button>
+                )}
+              </div>
+            )
+          })()}
+          {(!result.routes || result.routes.length === 0) && (
+            <p className="muted">Nenhuma rota encontrada para os modos selecionados.</p>
+          )}
+        </div>
+      )}
 
       <div className="card panel">
         <h2>💡 Dica</h2>
         <p className="muted small-text">
-          As cotações ficam na aba 🚌 Transporte de cada viagem. Ao clicar em “💰 Comprei!”,
-          o valor entra automaticamente nos gastos daquela viagem. Avião ainda é manual
-          (APIs de voo exigem chave paga) — registre a cotação dentro da viagem.
+          Rotas salvas aparecem na aba 🚌 Transporte de cada viagem. Ao clicar em “💰 Comprei!”,
+          o valor entra automaticamente nos gastos. O mapa precisa de internet; suas viagens,
+          gastos e ingressos continuam acessíveis offline.
         </p>
       </div>
     </section>

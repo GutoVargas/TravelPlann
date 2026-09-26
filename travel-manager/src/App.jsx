@@ -58,7 +58,7 @@ export default function App() {
         <nav>
           <button className={view === 'dashboard' ? 'active' : ''} onClick={() => setView('dashboard')}>Visão Geral</button>
           <button className={view === 'trips' || view === 'detail' ? 'active' : ''} onClick={() => setView('trips')}>Viagens</button>
-          <button className={view === 'search' ? 'active' : ''} onClick={() => setView('search')}>🔎 Buscar transporte</button>
+          <button className={view === 'search' ? 'active' : ''} onClick={() => setView('search')}>🧭 Rotas & deslocamentos</button>
           <button className="btn-primary" onClick={openNew}>+ Nova Viagem</button>
         </nav>
       </header>
