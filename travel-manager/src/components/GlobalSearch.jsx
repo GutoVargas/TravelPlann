@@ -5,6 +5,7 @@ function loadRecents() {
   try { return JSON.parse(localStorage.getItem(RECENTS_KEY)) || [] } catch { return [] }
 }
 import { api, brl } from '../api.js'
+import { cacheStops, localStopSuggestions } from '../offline.js'
 
 function fmtDuration(min) {
   if (min == null) return ''
@@ -34,12 +35,14 @@ const PROVIDERS = {
 
 // Campo de estação com AUTOCOMPLETE — ninguém precisa saber o nome exato.
 // Enquanto você digita (2+ letras), busca sugestões reais no HAFAS e mostra
-// uma lista para clicar. Se o provedor estiver bloqueado/offline, o campo
-// continua funcionando como texto livre (fallback).
+// uma lista para clicar. Se o provedor estiver bloqueado/offline, cai num
+// CACHE local (IndexedDB): histórico de sugestões que já funcionaram + um
+// dicionário embutido de cidades europeias em PT-BR (Munique→München Hbf…).
 function StopInput({ placeholder, value, onChange, enabled }) {
   const [suggestions, setSuggestions] = useState([])
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [fromCache, setFromCache] = useState(false)
 
   useEffect(() => {
     if (!enabled) { setSuggestions([]); return }
@@ -49,11 +52,27 @@ function StopInput({ placeholder, value, onChange, enabled }) {
     if (suggestions.some((s) => s.name === q)) { return }
     let cancelled = false
     setLoading(true)
-    const t = setTimeout(() => {
-      api.suggestStops(q)
-        .then((r) => { if (!cancelled) setSuggestions(r?.results || []) })
-        .catch(() => { if (!cancelled) setSuggestions([]) })
-        .finally(() => { if (!cancelled) setLoading(false) })
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.suggestStops(q)
+        const list = r?.results || []
+        if (cancelled) return
+        if (list.length > 0) {
+          setSuggestions(list)
+          setFromCache(false)
+          cacheStops(list) // aprende para uso futuro offline
+        } else {
+          // provedor vazio/bloqueado → fallback do cache local
+          setSuggestions(await localStopSuggestions(q))
+          setFromCache(true)
+        }
+      } catch {
+        if (cancelled) return
+        setSuggestions(await localStopSuggestions(q))
+        setFromCache(true)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }, 350) // debounce: evita martelar a API a cada tecla
     return () => { cancelled = true; clearTimeout(t) }
   }, [value, enabled])
@@ -69,18 +88,21 @@ function StopInput({ placeholder, value, onChange, enabled }) {
       />
       {enabled && loading && <span className="ac-spinner" title="buscando estações…">⏳</span>}
       {enabled && open && suggestions.length > 0 && (
-        <ul className="autocomplete">
-          {suggestions.map((s, i) => (
-            <li key={i}>
-              <button
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setSuggestions([]); setOpen(false) }}
-              >
-                🚉 {s.name}{s.district && s.district !== s.name ? ` — ${s.district}` : ''}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <>
+          {fromCache && <div className="ac-note">💾 sugestões locais (offline/sem resposta do provedor)</div>}
+          <ul className="autocomplete">
+            {suggestions.map((s, i) => (
+              <li key={i}>
+                <button
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setSuggestions([]); setOpen(false) }}
+                >
+                  🚉 {s.name}{s.district && s.district !== s.name ? ` — ${s.district}` : ''}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   )
