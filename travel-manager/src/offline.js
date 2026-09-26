@@ -43,7 +43,7 @@ const getMeta = async (k) => (await tx(META, 'readonly', (s) => s.get(k))) ?? nu
 const setMeta = (k, v) => tx(META, 'readwrite', (s) => s.put(v, k))
 
 // ---------- cache de sugestões de estações (fallback offline) ----------
-// Toda sugestão que o HAFAS/devolve em vida é espelhada no IndexedDB. Quando a
+// Toda sugestão de lugar (Google Places) recebida em vida é espelhada no IndexedDB. Quando a
 // rede/provedor falha, procuramos nesse histórico + num dicionário embutido de
 // cidades populares, para o autocomplete nunca ficar vazio.
 const STOP_CACHE = 'stop_cache' // value: [{ name, district }] — histórico aprendido

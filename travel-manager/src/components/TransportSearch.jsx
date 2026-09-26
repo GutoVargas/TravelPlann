@@ -1,21 +1,12 @@
 import { useState } from 'react'
 import { api, brl, fmtDate, TRANSPORT_MODES } from '../api.js'
 
-function fmtDuration(min) {
-  if (min == null) return ''
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  return h > 0 ? `${h}h${m ? String(m).padStart(2, '0') : ''}` : `${m}min`
-}
-
-// Busca/comparação de meios de transporte para o destino da viagem.
-// - Busca REAL de ônibus via HaFFas (preço + horário + duração)
-// - Cotações manuais para qualquer tipo de transporte
-// As cotações ficam salvas na viagem e podem ser convertidas em gasto ("Comprei!").
+// Cotações da viagem: registro manual (qualquer modal) + atalho para a tela
+// global de rotas do Google. "💰 Comprei!" lança o valor nos gastos.
 export default function TransportSearch({ trip, quotes, onAdd, onUpdate, onDelete, onError }) {
   const [form, setForm] = useState({
     mode: 'aviao',
-    from: '',
+    from: trip.origin || '',
     to: trip.destination || '',
     company: '',
     price: '',
@@ -23,14 +14,6 @@ export default function TransportSearch({ trip, quotes, onAdd, onUpdate, onDelet
     notes: ''
   })
   const [busy, setBusy] = useState(false)
-  const [searching, setSearching] = useState(false)
-  const [results, setResults] = useState(null)
-  const [addedUrls, setAddedUrls] = useState([])
-  const [searchForm, setSearchForm] = useState({
-    origin: '',
-    destination: trip.destination || '',
-    date: trip.startDate || ''
-  })
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
@@ -43,7 +26,7 @@ export default function TransportSearch({ trip, quotes, onAdd, onUpdate, onDelet
     setBusy(true)
     try {
       await onAdd({ ...form, price: Number(form.price) || 0 })
-      setForm((f) => ({ ...f, from: '', company: '', price: '', notes: '' }))
+      setForm((f) => ({ ...f, company: '', price: '', notes: '' }))
     } catch (err) { onError(err.message) } finally { setBusy(false) }
   }
 
@@ -55,114 +38,16 @@ export default function TransportSearch({ trip, quotes, onAdd, onUpdate, onDelet
   const cheapest = quotes.filter((q) => q.price > 0).sort((a, b) => a.price - b.price)[0]
   const totalEstimate = quotes.reduce((s, q) => s + (Number(q.price) || 0), 0)
 
-  // ---- Busca real de ônibus (HaFFas / BuscaPassagem) ----
-  const setSearch = (k) => (e) => setSearchForm((f) => ({ ...f, [k]: e.target.value }))
-
-  const runSearch = async (e) => {
-    e.preventDefault()
-    if (!searchForm.origin.trim() || !searchForm.destination.trim() || !searchForm.date) {
-      onError('Preencha origem, destino e data para buscar')
-      return
-    }
-    setSearching(true)
-    setResults(null)
-    try {
-      const data = await api.searchTransport({
-        origin: searchForm.origin.trim(),
-        destination: searchForm.destination.trim(),
-        date: searchForm.date
-      })
-      setResults(data.results || [])
-    } catch (err) {
-      onError(err.message)
-    } finally { setSearching(false) }
-  }
-
-  const alreadySaved = (r) =>
-    addedUrls.includes(r.url || `${r.company}|${r.departureTime}|${r.price}`)
-
-  const saveResult = async (r) => {
-    const tag = r.url || `${r.company}|${r.departureTime}|${r.price}`
-    try {
-      await onAdd({
-        mode: 'onibus',
-        from: r.from, to: r.to,
-        company: r.company,
-        price: r.price,
-        date: r.date,
-        notes: [
-          r.busType && `Ônibus ${r.busType}`,
-          r.departureTime && `saída ${r.departureTime}`,
-          r.arrivalTime && `chegada ${r.arrivalTime}`,
-          r.durationMin != null && `duração ${fmtDuration(r.durationMin)}`,
-          'Fonte: HaFFas'
-        ].filter(Boolean).join(' · '),
-        busType: r.busType,
-        departureTime: r.departureTime,
-        arrivalTime: r.arrivalTime,
-        durationMin: r.durationMin,
-        source: 'haffas',
-        url: r.url
-      })
-      setAddedUrls((prev) => [...prev, tag])
-    } catch (err) { onError(err.message) }
-  }
-
   return (
     <div className="card panel">
-      <h2>🚌 Buscar transporte para o destino</h2>
+      <h2>🚌 Transporte deste destino</h2>
       <p className="muted small-text">
-        Compare opções (avião, ônibus, trem…) e salve as cotações. Quando comprar, clique em
-        “💰 Comprei!” para lançar o valor automaticamente nos gastos.
+        Compare opções e salve cotações. Use a tela 🔎 Rotas & deslocamentos (menu lateral) para
+        buscar tempos, distâncias e mapas reais do Google — e salvar o resultado aqui. Quando
+        comprar, clique em “💰 Comprei!” para lançar o valor automaticamente nos gastos.
       </p>
 
-      {/* Busca REAL de ônibus via HaFFas */}
-      <form className="quote-form" onSubmit={runSearch}>
-        <span className="cat">🔎 Tempos &amp; preços reais — ônibus (HaFFas)</span>
-        <input
-          placeholder="Cidade de origem (ex.: São Paulo)"
-          value={searchForm.origin} onChange={setSearch('origin')}
-        />
-        <span className="arrow">→</span>
-        <input
-          placeholder="Cidade de destino"
-          value={searchForm.destination} onChange={setSearch('destination')}
-        />
-        <input type="date" value={searchForm.date} onChange={setSearch('date')} title="Data da viagem" />
-        <button className="btn-primary" disabled={searching}>
-          {searching ? '⏳ Buscando…' : '🚌 Buscar ônibus'}
-        </button>
-      </form>
-
-      {results !== null && results.length > 0 && (
-        <ul className="quotes search-results">
-          {results.map((r, i) => {
-            const tag = r.url || `${r.company}|${r.departureTime}|${r.price}`
-            return (
-              <li key={i}>
-                <span className="cat">🚌 {r.company || 'Viação'}</span>
-                <div className="exp-desc">
-                  <strong>{r.departureTime || '?'} → {r.arrivalTime || '?'}{r.durationMin != null && ` (${fmtDuration(r.durationMin)})`}</strong>
-                  <span className="muted small">
-                    {r.from} → {r.to}{r.busType && ` · ${r.busType}`}
-                  </span>
-                </div>
-                <span className="quote-price-static"><strong>{brl(r.price)}</strong></span>
-                {alreadySaved(r) ? (
-                  <span className="badge-ok">✅ salva</span>
-                ) : (
-                  <button className="btn-small" onClick={() => saveResult(r)}>＋ Salvar cotação</button>
-                )}
-                {r.url && (
-                  <a className="btn-small link" href={r.url} target="_blank" rel="noreferrer" title="Comprar no site">🛒</a>
-                )}
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
-      <details className="manual-quote">
+      <details className="manual-quote" open={sortedQuotes.length === 0}>
         <summary>➕ Registrar cotação manualmente (avião, trem, carro…)</summary>
         <form className="quote-form" onSubmit={submit}>
           <select value={form.mode} onChange={set('mode')}>
@@ -182,7 +67,7 @@ export default function TransportSearch({ trip, quotes, onAdd, onUpdate, onDelet
       </details>
 
       {sortedQuotes.length === 0 ? (
-        <p className="muted">Nenhuma cotação salva ainda. Use a busca de ônibus acima 👆 ou registre manualmente (avião, trem…).</p>
+        <p className="muted">Nenhuma cotação salva ainda. Busque rotas na tela 🔎 Rotas &amp; deslocamentos ou registre manualmente acima 👆.</p>
       ) : (
         <>
           <div className="quote-summary">

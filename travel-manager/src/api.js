@@ -119,9 +119,9 @@ export const api = {
     return t
   },
   // busca externa (só funciona online — UI trata a falha)
-  searchTransport: (params) => request(`/search-transport?${new URLSearchParams(params)}`),
-  searchTrains: (params) => request(`/search-trains?${new URLSearchParams(params)}`),
-  suggestStops: (q) => request(`/suggest-stops?q=${encodeURIComponent(q)}`),
+  routes: (params) => request(`/routes?${new URLSearchParams(params)}`),
+  suggestPlaces: (q) => request(`/suggest-places?q=${encodeURIComponent(q)}`),
+  googleStatus: () => request(`/google-status`),
 
   // ---------- viagens ----------
   createTrip: async (trip) => {
