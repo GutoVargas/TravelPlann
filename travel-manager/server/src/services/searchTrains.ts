@@ -68,6 +68,47 @@ async function resolveStop(name: string): Promise<{ id: string; name: string }> 
   return { id: String(hit.id), name: hit.name || clean }
 }
 
+// --- sugestões (autocomplete) ------------------------------------------------
+// Você NÃO precisa saber o nome exato da estação: o app consulta esta função
+// enquanto você digita. Usa o /locations do transport.rest (proxy comunitário
+// do HAFAS, sem chave) e, se ele estiver bloqueado, tenta o autocomplete do
+// bahn.de como reserva. Retorna sempre uma lista (vazia em caso de falha).
+export async function suggestStops(query: string, limit = 8): Promise<Array<{ id: string; name: string; district?: string }>> {
+  const clean = String(query || '').trim()
+  if (clean.length < 2) return []
+
+  try {
+    const url = `${communityBase()}/locations?query=${encodeURIComponent(clean)}&results=${limit}&fuzzy=true`
+    const json = await hafasRequest({ url })
+    if (Array.isArray(json) && json.length) {
+      return json
+        .filter((s: any) => s && s.id && s.name)
+        .slice(0, limit)
+        .map((s: any) => ({
+          id: String(s.id),
+          name: s.name,
+          district: s?.address?.city || undefined
+        }))
+    }
+  } catch { /* tenta o canal reserva */ }
+
+  try {
+    const url = `${stopsUrl()}?query=${encodeURIComponent(clean)}&limit=${limit}`
+    const json = await hafasRequest({ url })
+    const arr = Array.isArray(json) ? json : json?.stops ?? []
+    return arr
+      .filter((s: any) => s && (s.id || s.evaNo))
+      .slice(0, limit)
+      .map((s: any) => ({
+        id: String(s.id || s.evaNo),
+        name: s.name || s.label || '',
+        district: s?.municipalityName || s?.state || undefined
+      }))
+  } catch { /* sem canais de sugestão no momento */ }
+
+  return []
+}
+
 // --- helpers de formato ------------------------------------------------------
 const hm = (d: Date | null) =>
   d && !Number.isNaN(d.getTime())

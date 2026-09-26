@@ -24,12 +24,66 @@ const PROVIDERS = {
   },
   trem: {
     label: '🚆 Trem na Europa',
-    hint: 'HAFAS europeu (base oficial da Deutsche Bahn/ÖBB/SBB) — horários, duração, conexões e preço "ab X €" quando disponível. Tente estações como "München Hbf → Berlin Hbf" ou "Paris Gare de Lyon → Lyon Part-Dieu".',
+    hint: 'HAFAS europeu (base oficial da Deutsche Bahn/ÖBB/SBB) — horários, duração, conexões e preço "ab X €" quando disponível. Basta digitar a cidade (ex.: "Munique", "Paris", "Viena") e escolher uma estação na lista que aparece — não precisa saber o nome exato.',
     api: 'searchTrains',
-    originPh: 'Estação de origem (ex.: München Hbf)',
-    destPh: 'Estação de destino (ex.: Berlin Hbf)',
+    originPh: 'Origem — digite a cidade (ex.: Munique)',
+    destPh: 'Destino — digite a cidade (ex.: Berlim)',
     searchLabel: 'Buscar trens'
   }
+}
+
+// Campo de estação com AUTOCOMPLETE — ninguém precisa saber o nome exato.
+// Enquanto você digita (2+ letras), busca sugestões reais no HAFAS e mostra
+// uma lista para clicar. Se o provedor estiver bloqueado/offline, o campo
+// continua funcionando como texto livre (fallback).
+function StopInput({ placeholder, value, onChange, enabled }) {
+  const [suggestions, setSuggestions] = useState([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!enabled) { setSuggestions([]); return }
+    const q = String(value || '').trim()
+    if (q.length < 2) { setSuggestions([]); return }
+    // se o usuário já escolheu uma sugestão exata, não reabre a lista
+    if (suggestions.some((s) => s.name === q)) { return }
+    let cancelled = false
+    setLoading(true)
+    const t = setTimeout(() => {
+      api.suggestStops(q)
+        .then((r) => { if (!cancelled) setSuggestions(r?.results || []) })
+        .catch(() => { if (!cancelled) setSuggestions([]) })
+        .finally(() => { if (!cancelled) setLoading(false) })
+    }, 350) // debounce: evita martelar a API a cada tecla
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [value, enabled])
+
+  return (
+    <div className="stop-input">
+      <input
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 180)}
+      />
+      {enabled && loading && <span className="ac-spinner" title="buscando estações…">⏳</span>}
+      {enabled && open && suggestions.length > 0 && (
+        <ul className="autocomplete">
+          {suggestions.map((s, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); onChange(s.name); setSuggestions([]); setOpen(false) }}
+              >
+                🚉 {s.name}{s.district && s.district !== s.name ? ` — ${s.district}` : ''}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 // TELA DE BUSCA GLOBAL DE TRANSPORTE — independente de viagem.
@@ -134,10 +188,20 @@ export default function GlobalSearch({ trips, onError, onSaved }) {
         <p className="muted small-text">{p.hint}</p>
 
         <form className="quote-form" onSubmit={runSearch}>
-          <input placeholder={p.originPh} value={form.origin} onChange={set('origin')} />
+          <StopInput
+            placeholder={p.originPh}
+            value={form.origin}
+            onChange={(v) => setForm((f) => ({ ...f, origin: v }))}
+            enabled={provider === 'trem'}
+          />
           <span className="arrow">→</span>
           <button type="button" className="btn-small swap" title="Inverter origem e destino" onClick={swap}>⇄</button>
-          <input placeholder={p.destPh} value={form.destination} onChange={set('destination')} />
+          <StopInput
+            placeholder={p.destPh}
+            value={form.destination}
+            onChange={(v) => setForm((f) => ({ ...f, destination: v }))}
+            enabled={provider === 'trem'}
+          />
           <input type="date" value={form.date} onChange={set('date')} title="Data da viagem" />
           <button className="btn-primary" disabled={searching}>
             {searching ? '⏳ Buscando…' : `🔍 ${p.searchLabel}`}
