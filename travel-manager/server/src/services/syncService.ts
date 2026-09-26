@@ -22,6 +22,7 @@ function sanitizeRow(table: EntityTable, row: Record<string, unknown>): Record<s
   const numOrNull = (v: unknown) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v))
   switch (table) {
     case 'trips':
+      if (row.id !== undefined && row.id !== null && Number.isFinite(Number(row.id))) out.id = Number(row.id)
       out.title = str(row.title, 200)
       out.destination = str(row.destination, 200)
       out.start_date = str(row.start_date, 10)
@@ -176,7 +177,10 @@ export function pushChanges(clientId: string, input: SyncChange[]) {
             .run(table, serverId, JSON.stringify(snapshotPayload(table, serverId)))
 
           if (isInsert) {
-            idMap[table].set(Number.isFinite(clientRawId) && clientRawId > 0 ? clientRawId : serverId, serverId)
+            // registra o mapeamento cliente→servidor SEMPRE no insert (inclusive ids positivos
+            // desconhecidos), senão filhos do mesmo lote que referenciam esse id quebram a FK
+            idMap[table].set(serverId, serverId)
+            if (Number.isFinite(clientRawId)) idMap[table].set(clientRawId, serverId)
             if (Number.isFinite(clientRawId) && clientRawId !== serverId) {
               remap.push({ qid: Number(ch.qid ?? -1), table, oldId: clientRawId, newId: serverId })
             }

@@ -4,7 +4,7 @@
 //   normalmente (o servidor grava no SQLite); ao reconectar, syncNow() empurra a fila
 //   de mudanças feitas OFFLINE para /api/sync/push e puxa novidades via cursor.
 const DB_NAME = 'viajamaiss-offline'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORES = ['trips', 'expenses', 'transport_quotes', 'documents']
 const QUEUE = 'sync_queue'
 const META = 'meta'
@@ -19,6 +19,7 @@ function openDB() {
         for (const s of STORES) if (!d.objectStoreNames.contains(s)) d.createObjectStore(s, { keyPath: 'id' })
         if (!d.objectStoreNames.contains(QUEUE)) d.createObjectStore(QUEUE, { keyPath: 'qid', autoIncrement: true })
         if (!d.objectStoreNames.contains(META)) d.createObjectStore(META)
+        if (!d.objectStoreNames.contains(STOP_CACHE)) d.createObjectStore(STOP_CACHE, { keyPath: 'name' })
       }
       req.onsuccess = () => resolve(req.result)
       req.onerror = () => reject(req.error)
@@ -40,6 +41,85 @@ async function tx(store, mode, fn) {
 
 const getMeta = async (k) => (await tx(META, 'readonly', (s) => s.get(k))) ?? null
 const setMeta = (k, v) => tx(META, 'readwrite', (s) => s.put(v, k))
+
+// ---------- cache de sugestões de estações (fallback offline) ----------
+// Toda sugestão que o HAFAS/devolve em vida é espelhada no IndexedDB. Quando a
+// rede/provedor falha, procuramos nesse histórico + num dicionário embutido de
+// cidades populares, para o autocomplete nunca ficar vazio.
+const STOP_CACHE = 'stop_cache' // value: [{ name, district }] — histórico aprendido
+
+// carrega o histórico inteiro uma vez e mantém em memória (evita N transações)
+let stopHistory = null
+async function getStopHistory() {
+  if (!stopHistory) {
+    try { stopHistory = (await tx(STOP_CACHE, 'readonly', (s) => s.getAll()))?.result || [] }
+    catch { stopHistory = [] }
+  }
+  return stopHistory
+}
+
+export async function cacheStops(list) {
+  try {
+    const hist = await getStopHistory()
+    let dirty = false
+    for (const s of list || []) {
+      const name = String(s.name || '').trim()
+      if (!name) continue
+      if (!hist.some((p) => p.name === name)) { hist.push({ name, district: s.district || '' }); dirty = true }
+    }
+    if (dirty) {
+      const trimmed = hist.slice(-4000) // teto de segurança
+      await tx(STOP_CACHE, 'readwrite', (st) => { st.clear(); for (const e of trimmed) st.put(e) })
+    }
+  } catch { /* cache é melhor esforço */ }
+}
+
+// dicionário embutido PT-BR -> nomes oficiais (espelho do stopNames.ts do server).
+// Usado APENAS como fallback quando a API está fora do ar — são nomes reais de
+// cidades europeias; a busca final ainda tenta o provedor quando online.
+const EU_CITY_ALIASES = {
+  munique: ['München'], munich: ['München'], berlim: ['Berlin'], paris: ['Paris'],
+  londres: ['London'], london: ['London'], roma: ['Roma'], florenca: ['Firenze'],
+  veneza: ['Venezia'], milao: ['Milano'], napoles: ['Napoli'], barcelona: ['Barcelona'],
+  madri: ['Madrid'], lisboa: ['Lisboa'], porto: ['Porto'], amsterda: ['Amsterdam'],
+  haia: ["'s-Gravenhage"], bruxelas: ['Bruxelles'], antuerpia: ['Antwerpen'],
+  viena: ['Wien'], zurique: ['Zürich'], genebra: ['Genève'], praga: ['Praha'],
+  budapeste: ['Budapest'], warsavia: ['Warszawa'], cracovia: ['Kraków'],
+  estocolmo: ['Stockholm'], copenhague: ['København'], helsinque: ['Helsinki'],
+  dublim: ['Dublin'], franfurt: ['Frankfurt'], hamburg: ['Hamburg'], colonia: ['Köln'],
+  nuremberga: ['Nürnberg'], estrasburgo: ['Strasbourg'], lyon: ['Lyon'],
+  marselha: ['Marseille'], nice: ['Nice'], salzburg: ['Salzburg'], innsbruck: ['Innsbruck'],
+  valencia: ['Valencia'], sevilha: ['Sevilla'], sevila: ['Sevilla'], oporto: ['Porto']
+}
+
+const fold = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+export async function localStopSuggestions(q) {
+  const query = fold(String(q || '').trim())
+  if (query.length < 2) return []
+  const out = []
+  const seen = new Set()
+  const push = (name, district) => {
+    const k = fold(name)
+    // casa se o nome contém a busca ("münchen"→"Munique Hbf") OU se a busca casa
+    // com um alias PT-BR da cidade desse nome ("munique"→"München Hbf")
+    const aliasHit = Object.entries(EU_CITY_ALIASES).some(([a, targets]) =>
+      targets.some((t) => k.startsWith(fold(t))) && (fold(a) === query || fold(a).startsWith(query) || query.startsWith(fold(a))))
+    if (!seen.has(k) && (k.includes(query) || aliasHit)) { seen.add(k); out.push({ name, district }) }
+  }
+  // 1) histórico real aprendido (IndexedDB)
+  const hist = await getStopHistory()
+  for (const e of hist) push(e.name, e.district)
+  // 2) dicionário embutido (igualdade/prefixo em PT-BR ou grafia local).
+  //    Para as capitais, adicionamos também a estação central real mais usada.
+  const CENTRAL = { Paris: 'Paris Gare de Lyon', London: 'London St Pancras Intl', Wien: 'Wien Hbf', Praha: 'Praha main station' }
+  for (const [alias, targets] of Object.entries(EU_CITY_ALIASES)) {
+    if (fold(alias) === query || fold(alias).startsWith(query) || query.startsWith(fold(alias))) {
+      for (const t of targets) push(CENTRAL[t] || `${t} Hbf`, '')
+    }
+  }
+  return out.slice(0, 8)
+}
 
 // ---------- conversões ----------
 const SNAKE_RE = /_([a-z])/g
@@ -237,9 +317,16 @@ export async function syncNow(apiFetch) {
     }
     // 2) pull de mudanças do servidor desde o último cursor
     let cursor = (await getMeta('cursor')) ?? 0
+    // primeira vez neste dispositivo? pede snapshot completo (inclui linhas criadas antes de eu existir)
+    if (!(await getMeta('bootstrapped'))) {
+      cursor = 0
+      var bootstrap = true
+    }
     let more = true
     while (more) {
-      const data = await apiFetch(`/sync/changes?since=${cursor}`)
+      const data = await apiFetch(`/sync/changes?since=${cursor}${bootstrap ? '&full=1' : ''}`)
+      bootstrap = false
+      await setMeta('bootstrapped', 1)
       for (const ch of data.changes || []) {
         if (ch.action === 'upsert' && ch.payload && ch.payload.id != null) {
           await applyServerRow(ch.table, ch.payload)

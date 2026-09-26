@@ -23,6 +23,7 @@
 // ---------------------------------------------------------------------------
 
 import { hafasRequest } from './hafasProxy.js'
+import { translateCity } from './stopNames.js'
 
 const DEFAULT_SEARCH =
   'https://www.bahn.de/web/api/automated-trip-production/product/DE/db/regioTripSearch/rest/search'
@@ -42,30 +43,87 @@ const communityBase = () => process.env.TRANSPORT_REST || DEFAULT_COMMUNITY
 // /locations do transport.rest (mesma base HAFAS; id = número EVa).
 async function resolveStop(name: string): Promise<{ id: string; name: string }> {
   const clean = String(name).trim()
+  const queries = [clean, ...translateCity(clean)]
   try {
-    const url = `${stopsUrl()}?query=${encodeURIComponent(clean)}&limit=1`
-    const json = await hafasRequest({ url })
-    const hit = Array.isArray(json) ? json[0] : json?.stops?.[0] ?? null
-    if (hit && (hit.id || hit.evaNo || hit.globalId)) {
-      return {
-        id: String(hit.id || hit.evaNo || hit.globalId),
-        name: hit.name || hit.label || clean
+    for (const q of queries) {
+      const url = `${stopsUrl()}?query=${encodeURIComponent(q)}&limit=1`
+      let json: any = null
+      try { json = await hafasRequest({ url }) } catch { continue }
+      const hit = Array.isArray(json) ? json[0] : json?.stops?.[0] ?? null
+      if (hit && (hit.id || hit.evaNo || hit.globalId)) {
+        return {
+          id: String(hit.id || hit.evaNo || hit.globalId),
+          name: hit.name || hit.label || clean
+        }
       }
     }
   } catch { /* segue para o canal comunitário */ }
 
-  let json: any = null
-  try {
-    const url = `${communityBase()}/locations?query=${encodeURIComponent(clean)}&results=1`
-    json = await hafasRequest({ url })
-  } catch { /* sem canais disponíveis */ }
-  const hit = Array.isArray(json) ? json[0] : null
+  let hit: any = null
+  for (const q of queries) {
+    try {
+      const url = `${communityBase()}/locations?query=${encodeURIComponent(q)}&results=1`
+      const json = await hafasRequest({ url })
+      if (Array.isArray(json) && json[0]) { hit = json[0]; break }
+    } catch { /* tenta próxima grafia */ }
+  }
   if (!hit || !hit.id) {
     throw new Error(
       `Não encontramos a estação "${clean}" na Europa. Tente o nome oficial (ex.: "München Hbf", "Paris Gare de Lyon", "Wien Hbf").`
     )
   }
   return { id: String(hit.id), name: hit.name || clean }
+}
+
+// --- sugestões (autocomplete) ------------------------------------------------
+// Você NÃO precisa saber o nome exato da estação: o app consulta esta função
+// enquanto você digita. Usa o /locations do transport.rest (proxy comunitário
+// do HAFAS, sem chave) e, se ele estiver bloqueado, tenta o autocomplete do
+// bahn.de como reserva. Retorna sempre uma lista (vazia em caso de falha).
+export async function suggestStops(query: string, limit = 8): Promise<Array<{ id: string; name: string; district?: string }>> {
+  const clean = String(query || '').trim()
+  if (clean.length < 2) return []
+
+  // Tradução de cidade em PT-BR -> termo oficial (ex.: "Munique" -> "München"),
+  // para o usuário não precisar saber o nome exato da estação.
+  const queries = [clean, ...translateCity(clean)]
+  try {
+    // fuzzy=false -> busca literal ("Munique" casa com "München Hbf" via índice de nomes).
+    // Se vier vazio, tentamos fuzzy=true (busca aproximada, tolera acentos/errinhos).
+    for (const q of queries) {
+      for (const fuzzy of ['false', 'true']) {
+        const url = `${communityBase()}/locations?query=${encodeURIComponent(q)}&results=${limit}&fuzzy=${fuzzy}`
+        let json: any = null
+        try { json = await hafasRequest({ url }) } catch { continue }
+        if (Array.isArray(json) && json.length) {
+          return json
+            .filter((s: any) => s && s.id && s.name)
+            .slice(0, limit)
+            .map((s: any) => ({
+              id: String(s.id),
+              name: s.name,
+              district: s?.address?.city || undefined
+            }))
+        }
+      }
+    }
+  } catch { /* tenta o canal reserva */ }
+
+  try {
+    const url = `${stopsUrl()}?query=${encodeURIComponent(clean)}&limit=${limit}`
+    const json = await hafasRequest({ url })
+    const arr = Array.isArray(json) ? json : json?.stops ?? []
+    return arr
+      .filter((s: any) => s && (s.id || s.evaNo))
+      .slice(0, limit)
+      .map((s: any) => ({
+        id: String(s.id || s.evaNo),
+        name: s.name || s.label || '',
+        district: s?.municipalityName || s?.state || undefined
+      }))
+  } catch { /* sem canais de sugestão no momento */ }
+
+  return []
 }
 
 // --- helpers de formato ------------------------------------------------------

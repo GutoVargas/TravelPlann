@@ -121,6 +121,7 @@ export const api = {
   // busca externa (só funciona online — UI trata a falha)
   searchTransport: (params) => request(`/search-transport?${new URLSearchParams(params)}`),
   searchTrains: (params) => request(`/search-trains?${new URLSearchParams(params)}`),
+  suggestStops: (q) => request(`/suggest-stops?q=${encodeURIComponent(q)}`),
 
   // ---------- viagens ----------
   createTrip: async (trip) => {
